@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1d4ed8" />
+    <title>MedPronto — Iniciando</title>
+    <style>
+      :root {
+        --bg: #e8eef8;
+        --bg-2: #dce6f4;
+        --text: #0f172a;
+        --muted: #475569;
+        --accent: #1d4ed8;
+        --panel: #ffffff;
+        --glow-1: rgba(29, 78, 216, 0.14);
+        --glow-2: rgba(30, 64, 175, 0.1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        font-family: "Segoe UI", Inter, system-ui, sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(ellipse 120% 60% at 90% 0%, var(--glow-1), transparent 55%),
+          radial-gradient(ellipse 90% 50% at 0% 40%, var(--glow-2), transparent 55%),
+          linear-gradient(165deg, var(--bg) 0%, var(--bg-2) 100%);
+      }
+
+      .wrap {
+        display: flex;
+        min-height: 100vh;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+
+      .card {
+        width: min(420px, 100%);
+        text-align: center;
+        background: var(--panel);
+        border: 1px solid #94a8c4;
+        border-radius: 20px;
+        padding: 40px 32px 36px;
+        box-shadow: 0 10px 32px rgba(12, 22, 40, 0.14);
+      }
+
+      .logo {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 72px;
+        height: 72px;
+        border-radius: 16px;
+        background: var(--accent);
+        color: #fff;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 14px rgba(29, 78, 216, 0.35);
+      }
+
+      .logo svg {
+        width: 40px;
+        height: 40px;
+      }
+
+      h1 {
+        margin: 0 0 6px;
+        font-size: 1.65rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      .subtitle {
+        margin: 0 0 28px;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .spinner {
+        width: 44px;
+        height: 44px;
+        margin: 0 auto 22px;
+        border: 3px solid #dbeafe;
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .message {
+        min-height: 3.2em;
+        margin: 0;
+        font-size: 1rem;
+        line-height: 1.55;
+        color: var(--text);
+        transition: opacity 0.25s ease;
+      }
+
+      .message.fade {
+        opacity: 0.45;
+      }
+
+      .hint {
+        margin: 18px 0 0;
+        font-size: 0.78rem;
+        color: var(--muted);
+      }
+
+      .error-box {
+        display: none;
+        margin-top: 20px;
+        padding: 14px 16px;
+        background: #fef2f2;
+        border: 1px solid #fca5a5;
+        border-radius: 10px;
+        text-align: left;
+      }
+
+      .error-box p {
+        margin: 0 0 10px;
+        font-size: 0.82rem;
+        color: #991b1b;
+        line-height: 1.5;
+      }
+
+      .error-box .status-line {
+        margin: 0 0 14px;
+        font-size: 0.78rem;
+        color: #7f1d1d;
+        font-family: monospace;
+        word-break: break-all;
+      }
+
+      .btn {
+        width: 100%;
+        padding: 8px 12px;
+        border: none;
+        border-radius: 8px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+        background: var(--accent);
+        color: #fff;
+      }
+
+      .btn:hover {
+        background: #1e40af;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <div class="logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M12 6v12" />
+            <path d="M6 12h12" />
+            <circle cx="12" cy="12" r="9" />
+          </svg>
+        </div>
+        <h1>MedPronto</h1>
+        <p class="subtitle">Consultório médico</p>
+        <div class="spinner" role="status" aria-label="Carregando"></div>
+        <p class="message" id="msg">Preparando sistema…</p>
+        <p class="hint" id="hint">Aguarde — a tela de login abrirá em outra janela.</p>
+
+        <div class="error-box" id="err">
+          <p>O sistema demorou mais que o esperado para abrir.</p>
+          <p class="status-line" id="err-status"></p>
+          <button class="btn" type="button" onclick="window.location.reload()">Tentar novamente</button>
+        </div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var API = "http://127.0.0.1:3021";
+        var TIMEOUT_MS = 3 * 60 * 1000;
+
+        var msgEl = document.getElementById("msg");
+        var hintEl = document.getElementById("hint");
+        var errEl = document.getElementById("err");
+        var errStatus = document.getElementById("err-status");
+        var lastMsg = "";
+        var timedOut = false;
+        var startedAt = Date.now();
+        var apiOkOnce = false;
+        var readyStreak = 0;
+        var READY_NEEDED = 3;
+
+        var closeScheduled = false;
+
+        function scheduleClose() {
+          if (closeScheduled) return;
+          closeScheduled = true;
+          hintEl.textContent = "Fechando esta janela…";
+          setTimeout(function () {
+            try {
+              window.close();
+            } catch (e) {}
+          }, 1200);
+        }
+
+        function setMessage(text) {
+          if (!text || text === lastMsg) return;
+          lastMsg = text;
+          msgEl.classList.add("fade");
+          setTimeout(function () {
+            msgEl.textContent = text;
+            msgEl.classList.remove("fade");
+          }, 120);
+        }
+
+        function showError() {
+          if (timedOut) return;
+          timedOut = true;
+          document.querySelector(".spinner").style.animation = "none";
+          document.querySelector(".spinner").style.borderTopColor = "#fca5a5";
+          hintEl.style.display = "none";
+          errEl.style.display = "block";
+          errStatus.textContent = "Último status: " + (lastMsg || "desconhecido");
+        }
+
+        function poll() {
+          if (timedOut) return;
+
+          var elapsed = Date.now() - startedAt;
+          var apiTimeout = !apiOkOnce && elapsed > 90000;
+          if (elapsed > TIMEOUT_MS || apiTimeout) {
+            showError();
+            return;
+          }
+
+          if (!apiOkOnce && elapsed > 30000 && elapsed < 31000) {
+            setMessage("Ainda iniciando… pode levar até 2 minutos.");
+          }
+          if (!apiOkOnce && elapsed > 75000 && elapsed < 76000) {
+            setMessage("Quase lá… aguarde mais um momento.");
+          }
+
+          fetch(API + "/api/startup/ready", { cache: "no-store" })
+            .then(function (r) {
+              return r.ok ? r.json() : null;
+            })
+            .then(function (d) {
+              if (!d) return;
+              apiOkOnce = true;
+              if (d.message) setMessage(d.message);
+              if (d.message && /abrindo tela de login/i.test(d.message)) {
+                scheduleClose();
+              }
+              if (d.ready) {
+                readyStreak++;
+                if (readyStreak === 1) {
+                  setMessage("Abrindo tela de login…");
+                }
+              } else {
+                readyStreak = 0;
+              }
+              if (d.ready && readyStreak >= READY_NEEDED) {
+                scheduleClose();
+              }
+            })
+            .catch(function () {});
+        }
+
+        poll();
+        setInterval(poll, 800);
+      })();
+    </script>
+  </body>
+</html>

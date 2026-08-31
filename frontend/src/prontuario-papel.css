@@ -1,0 +1,1064 @@
+/* MedPronto — prontuário estilo folha de papel pré-impresso */
+
+.atendimento-prontuario-view {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.prontuario-folha {
+  --prontuario-borda: #1a1a1a;
+  --prontuario-papel: #fffef9;
+  --prontuario-linha: #bdbdbd;
+  --prontuario-texto: #111;
+  --prontuario-muted: #444;
+
+  background: var(--prontuario-papel);
+  border: 1.5px solid var(--prontuario-borda);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.08);
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 1.25rem 1.5rem 1.5rem;
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+  font-size: 15px;
+  color: var(--prontuario-texto);
+  line-height: 1.35;
+  box-sizing: border-box;
+  overflow-x: hidden;
+}
+
+/* ── Cabeçalho ── */
+
+.prontuario-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.65rem;
+}
+
+.prontuario-topo__esquerda {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.prontuario-topo__logo {
+  max-height: 52px;
+  max-width: 72px;
+  object-fit: contain;
+}
+
+.prontuario-topo__medico-nome {
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.prontuario-topo__medico-info {
+  margin-top: 0.15rem;
+  font-size: 0.875rem;
+  color: var(--prontuario-muted);
+}
+
+.prontuario-topo__caixa {
+  flex-shrink: 0;
+  border: 1px solid var(--prontuario-borda);
+  min-width: 9.5rem;
+}
+
+.prontuario-topo__caixa-linha {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.prontuario-topo__caixa-linha + .prontuario-topo__caixa-linha {
+  border-top: 1px solid var(--prontuario-borda);
+}
+
+.prontuario-topo__caixa-valor {
+  flex: 1;
+  font-weight: 600;
+  text-align: right;
+}
+
+/* ── Título do documento ── */
+
+.prontuario-titulo-documento {
+  margin: 0.5rem 0 0.85rem;
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.prontuario-titulo-documento__paciente {
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  text-transform: none;
+}
+
+/* ── Identificação do paciente (linhas) ── */
+
+.prontuario-identificacao {
+  margin-bottom: 0.85rem;
+}
+
+.prontuario-linha {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.5rem;
+  margin-bottom: 0.45rem;
+}
+
+.prontuario-linha__rotulo {
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.prontuario-linha__valor {
+  flex: 1;
+  min-width: 6rem;
+  font-weight: 500;
+  border-bottom: 1px solid var(--prontuario-borda);
+  padding-bottom: 0.1rem;
+  min-height: 1.25rem;
+}
+
+.prontuario-linha__valor--curto {
+  flex: 0 1 6.5rem;
+  min-width: 6rem;
+}
+
+.prontuario-linha__valor--telefone {
+  flex: 0 0 11rem;
+  min-width: 11rem;
+}
+
+.prontuario-linha__input {
+  border: none;
+  border-bottom: 1px solid var(--prontuario-borda);
+  border-radius: 0;
+  background: transparent;
+  padding: 0 0 0.1rem;
+  font: inherit;
+  font-weight: 500;
+  color: inherit;
+  outline: none;
+  cursor: default;
+}
+
+.prontuario-linha__input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.prontuario-linha--obs {
+  margin-top: 0.35rem;
+  align-items: flex-start;
+}
+
+.prontuario-linha--obs .prontuario-linha__valor {
+  border-bottom: none;
+  white-space: pre-wrap;
+}
+
+.prontuario-alerta,
+.prontuario-alerta-alergia {
+  margin-top: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--prontuario-borda);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.prontuario-alerta-alergia::before,
+.prontuario-alerta::before {
+  content: "Alergias: ";
+  font-weight: 700;
+}
+
+.prontuario-alerta--medicacao::before {
+  content: "Medicações em uso: ";
+}
+
+/* ── Corpo clínico ── */
+
+.prontuario-corpo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.prontuario-secao {
+  border: 1px solid var(--prontuario-borda);
+  padding: 0.45rem 0.65rem 0.55rem;
+  background: var(--prontuario-papel);
+}
+
+.prontuario-secao--cid {
+  overflow: visible;
+}
+
+.prontuario-secao__titulo {
+  display: block;
+  margin: 0 0 0.25rem;
+  padding: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: normal;
+  background: none;
+  color: var(--prontuario-texto);
+}
+
+.prontuario-secao__numero {
+  display: none;
+}
+
+.prontuario-campo {
+  padding: 0;
+  min-height: 0;
+}
+
+.prontuario-campo--linhas {
+  background-image: repeating-linear-gradient(
+    transparent,
+    transparent calc(1.45rem - 1px),
+    var(--prontuario-linha) calc(1.45rem - 1px),
+    var(--prontuario-linha) 1.45rem
+  );
+  background-position: 0 0.15rem;
+  line-height: 1.45rem;
+}
+
+.prontuario-secao__area {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: inherit;
+  color: inherit;
+  resize: vertical;
+  padding: 0.15rem 0 0.35rem;
+  min-height: 4.35rem;
+  line-height: 1.45rem;
+  outline: none;
+  text-transform: uppercase;
+}
+
+.prontuario-secao__area:focus {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.prontuario-campo textarea,
+.prontuario-campo input[type="text"] {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  resize: vertical;
+  min-height: 3.5rem;
+  outline: none;
+  line-height: 1.45rem;
+  text-transform: uppercase;
+}
+
+.prontuario-campo textarea:focus,
+.prontuario-campo input[type="text"]:focus {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+/* CID dentro da folha */
+
+.prontuario-secao--cid .prontuario-secao__titulo {
+  margin-bottom: 0.35rem;
+}
+
+.prontuario-secao--cid .toolbar-search {
+  border-bottom: 1px solid var(--prontuario-borda);
+  border-radius: 0;
+  background: transparent;
+}
+
+.prontuario-secao--cid .legacy-input {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding-left: 2.25rem;
+}
+
+.prontuario-secao--cid .legacy-input:focus {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+/* Retorno */
+
+.prontuario-retorno__hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--prontuario-muted);
+}
+
+.prontuario-retorno__presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+
+.prontuario-retorno__presets .btn {
+  font-size: 0.8125rem;
+  padding: 0.25rem 0.55rem;
+}
+
+.prontuario-retorno__custom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.prontuario-retorno__custom .legacy-input {
+  border: none;
+  border-bottom: 1px solid var(--prontuario-borda);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.prontuario-retorno__ate {
+  font-size: 0.8125rem;
+  color: var(--prontuario-muted);
+}
+
+.prontuario-retorno__leitura {
+  display: inline-block;
+  margin: 0;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  background: var(--accent, #1d4ed8);
+  color: #fff;
+  border-radius: 0.35rem;
+}
+
+.prontuario-retorno__leitura--vazio {
+  background: transparent;
+  color: var(--prontuario-muted);
+  font-weight: 500;
+  padding-left: 0;
+}
+
+.cid-autocomplete-item--active,
+.cid-autocomplete-item:hover {
+  background: var(--accent-soft);
+}
+
+.cid-autocomplete-item--active {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: -2px;
+}
+
+/* Pedido de exame — uma linha por exame, foco nítido na linha ativa */
+
+.pedido-exame-lista {
+  border: 1px solid var(--prontuario-borda);
+  background: var(--prontuario-papel, #fffef9);
+}
+
+.pedido-exame-linha {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  border-bottom: 1px solid #8a8a8a;
+}
+
+.pedido-exame-linha:last-child {
+  border-bottom: none;
+}
+
+.pedido-exame-linha:focus-within {
+  background: rgba(37, 99, 235, 0.08);
+  box-shadow: inset 0 0 0 2px var(--accent, #1e40af);
+  position: relative;
+  z-index: 1;
+}
+
+.pedido-exame-linha__input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.45rem 0.65rem;
+  font: inherit;
+  font-size: inherit;
+  line-height: 1.45rem;
+  text-transform: uppercase;
+  outline: none;
+  min-height: 2.35rem;
+  color: var(--prontuario-texto, #111);
+}
+
+.pedido-exame-linha__input::placeholder {
+  color: #888;
+  opacity: 1;
+}
+
+.pedido-exame-linha__del {
+  flex-shrink: 0;
+  align-self: center;
+  margin-right: 0.35rem;
+  min-width: 2rem;
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
+}
+
+.pedido-exame-obs:focus-within {
+  box-shadow: inset 0 0 0 2px var(--accent, #1e40af);
+  background: rgba(37, 99, 235, 0.04);
+}
+
+.pedido-exame-obs.prontuario-campo--linhas {
+  --prontuario-linha: #8a8a8a;
+}
+
+/* Admissional — campos dentro da folha de papel */
+
+.prontuario-admissional-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  cursor: pointer;
+  margin: 0;
+}
+
+.prontuario-admissional-check input[type="checkbox"] {
+  margin-top: 0.15rem;
+  flex-shrink: 0;
+}
+
+.prontuario-admissional-check__label {
+  margin: 0;
+}
+
+.prontuario-admissional-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: inherit;
+  color: inherit;
+  padding: 0.15rem 0 0.35rem;
+  line-height: 1.45rem;
+  outline: none;
+  text-transform: uppercase;
+}
+
+.prontuario-admissional-input:focus {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.prontuario-admissional-conclusao {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  margin-top: 0.25rem;
+}
+
+.prontuario-admissional-conclusao__opcao {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.prontuario-admissional-finalizado {
+  margin: 0.65rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--prontuario-muted);
+}
+
+/* Ações (fora do “papel”, mas dentro da folha) */
+
+.prontuario-acoes {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px dashed var(--prontuario-linha);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+/* Histórico / preview badge */
+
+.prontuario-historico {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  border: 1px dashed var(--prontuario-linha);
+  font-size: 0.875rem;
+  color: var(--prontuario-muted);
+}
+
+.prontuario-historico__item {
+  padding: 0.5rem 0;
+  border-bottom: 1px dotted var(--prontuario-linha);
+}
+
+.prontuario-historico__item:last-child {
+  border-bottom: none;
+}
+
+.historico-detalhe-row td {
+  background: #faf8f4;
+  padding: 0;
+}
+
+.historico-detalhe {
+  padding: 0.65rem 1rem;
+  font-size: 0.875rem;
+  color: var(--prontuario-texto);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.historico-detalhe__meta {
+  margin: 0 0 0.5rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px dashed var(--prontuario-linha);
+  font-size: 0.8125rem;
+}
+
+.historico-detalhe__vazio {
+  margin: 0;
+}
+
+.historico-detalhe__lista {
+  margin: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.historico-detalhe__item {
+  margin: 0;
+}
+
+.historico-detalhe__item dt {
+  margin: 0 0 0.15rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--prontuario-muted);
+}
+
+.historico-detalhe__item dd {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.4;
+}
+
+.historico-detalhe p {
+  margin: 0.35rem 0;
+}
+
+.historico-detalhe__folha {
+  margin-top: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  background: #fffef9;
+  border: 1px solid var(--prontuario-linha);
+  border-radius: 0.35rem;
+}
+
+.historico-detalhe__folha .prontuario-corpo {
+  margin-top: 0;
+}
+
+/* Painel de lista dentro da folha (sem card duplicado) */
+.prontuario-lista-panel {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.55rem 0.75rem 0.75rem;
+}
+
+.prontuario-folha--fill .prontuario-lista-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.prontuario-folha--fill .prontuario-lista-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Tabelas dentro da folha (histórico, exames) — contidas no card */
+.prontuario-lista-wrap {
+  margin-top: 0.5rem;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.prontuario-lista-table.data-table {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0 !important;
+  table-layout: fixed;
+}
+
+.prontuario-lista-table th,
+.prontuario-lista-table td {
+  white-space: normal !important;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+  font-size: 0.8125rem;
+  padding: 0.5rem 0.55rem;
+}
+
+.prontuario-lista-table thead th {
+  white-space: normal;
+  line-height: 1.25;
+  font-size: 0.6875rem;
+}
+
+.prontuario-lista-arquivo {
+  font-size: 0.75rem;
+  line-height: 1.3;
+  color: var(--prontuario-muted);
+}
+
+.prontuario-lista-table--historico th:nth-child(1),
+.prontuario-lista-table--historico td:nth-child(1) {
+  width: 7.5rem;
+  white-space: nowrap !important;
+  word-break: keep-all;
+  overflow-wrap: normal;
+}
+
+.prontuario-lista-table--historico th:nth-child(2),
+.prontuario-lista-table--historico td:nth-child(2) {
+  width: 5.5rem;
+}
+
+.prontuario-lista-table--historico th:nth-child(3),
+.prontuario-lista-table--historico td:nth-child(3) {
+  width: 15%;
+}
+
+.prontuario-lista-table--historico th:nth-child(4),
+.prontuario-lista-table--historico td:nth-child(4) {
+  width: 20%;
+}
+
+.prontuario-lista-table--historico th:nth-child(5),
+.prontuario-lista-table--historico td:nth-child(5) {
+  width: auto;
+}
+
+.prontuario-lista-table--historico th:nth-child(6),
+.prontuario-lista-table--historico td:nth-child(6) {
+  width: 6.75rem;
+}
+
+.prontuario-lista-table--exames th:nth-child(1),
+.prontuario-lista-table--exames td:nth-child(1) {
+  width: 7.5rem;
+  white-space: nowrap !important;
+  word-break: keep-all;
+  overflow-wrap: normal;
+}
+
+.prontuario-lista-table--exames th:nth-child(2),
+.prontuario-lista-table--exames td:nth-child(2) {
+  width: 24%;
+}
+
+.prontuario-lista-table--exames th:nth-child(3),
+.prontuario-lista-table--exames td:nth-child(3) {
+  width: auto;
+}
+
+.prontuario-lista-table--exames th:nth-child(4),
+.prontuario-lista-table--exames td:nth-child(4) {
+  width: 5.75rem;
+}
+
+.prontuario-lista-table--exames th:nth-child(5),
+.prontuario-lista-table--exames td:nth-child(5) {
+  width: 8.25rem;
+}
+
+.prontuario-lista-acoes {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+}
+
+.prontuario-lista-acoes .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+  text-align: center;
+  line-height: 1.15;
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
+}
+
+.prontuario-lista-table .data-table__actions {
+  width: auto;
+  text-align: center;
+  vertical-align: middle;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+.prontuario-retificacao-aviso {
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border: 2px solid #d97706;
+  border-radius: 0.375rem;
+  background: #fffbeb;
+  color: #78350f;
+}
+
+.prontuario-retificacao-aviso__titulo {
+  margin: 0 0 0.35rem;
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.prontuario-retificacao-aviso__motivo {
+  margin: 0 0 0.35rem;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.prontuario-retificacao-aviso__diagrama {
+  margin: 0 0 0.35rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  opacity: 0.95;
+}
+
+.prontuario-retificacao-aviso__hint {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.prontuario-corpo--retificacao .prontuario-secao:first-child .prontuario-secao__titulo {
+  color: #b45309;
+}
+
+.historico-legenda {
+  margin: 0 0 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.historico-retificacao-andamento {
+  margin: 0 0 0.85rem;
+  padding: 0.75rem 0.9rem;
+  border: 2px solid #d97706;
+  border-radius: 0.375rem;
+  background: #fffbeb;
+  color: #78350f;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.historico-retificacao-andamento__titulo {
+  margin: 0 0 0.35rem;
+  font-weight: 700;
+}
+
+.historico-retificacao-andamento__hint {
+  margin: 0.5rem 0 0;
+}
+
+.historico-badge-retificacao {
+  display: inline-block;
+  margin-top: 0.2rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.historico-celula-prontuario {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.1rem 0.2rem;
+  line-height: 1.25;
+}
+
+.historico-pront-num {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.historico-pront-num--retificacao {
+  color: #92400e;
+}
+
+.historico-pront-sep {
+  color: var(--prontuario-muted);
+  font-weight: 600;
+}
+
+.historico-celula-prontuario .historico-badge-retificacao {
+  flex-basis: 100%;
+  margin-top: 0.15rem;
+}
+
+.historico-row-retificacao td {
+  background: #fffdf5;
+}
+
+.historico-row-retificacao td:first-child {
+  padding-left: 1.1rem;
+}
+
+.historico-row-grupo-inicio td {
+  border-top: 4px solid var(--prontuario-borda);
+  padding-top: 0.7rem;
+}
+
+.historico-row-exame td {
+  background: #fffbeb;
+}
+
+.historico-hora-exame {
+  color: var(--prontuario-muted, var(--muted));
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.historico-celula-exame {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.historico-exame-anexos {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+}
+
+.historico-celula-retificacao {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.atendimento-modo {
+  padding-top: 0;
+  padding-bottom: 0.65rem;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  border-bottom: 1px solid var(--border);
+}
+
+.atendimento-modo--retificacao {
+  color: #92400e;
+  font-weight: 600;
+}
+
+.atendimento-modo--leitura {
+  color: #1e40af;
+  font-weight: 600;
+}
+
+.exame-audit-paciente {
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+  color: var(--prontuario-texto);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.exame-audit-alerta {
+  color: #b45309;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.exame-audit-alerta--bloco {
+  display: block;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #fcd34d;
+  border-radius: 0.375rem;
+  background: #fffbeb;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.prontuario-preview-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--prontuario-borda);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Legado — cabeçalho antigo (compat.) */
+
+.prontuario-cabecalho,
+.prontuario-paciente {
+  display: none;
+}
+
+@media print {
+  .prontuario-folha {
+    box-shadow: none;
+    border: none;
+    max-width: none;
+    padding: 0;
+  }
+
+  .prontuario-acoes {
+    display: none;
+  }
+}
+
+/* Receituário — tabela de medicamentos ocupa o máximo da folha */
+
+.prontuario-folha--fill {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-width: none;
+}
+
+.receita-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 0.65rem;
+  padding: 0.55rem 0.75rem 0.75rem;
+}
+
+.receita-panel__tabela {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  overflow-x: hidden;
+}
+
+.receita-panel__table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.receita-panel__table .legacy-input {
+  min-height: 2.25rem;
+  text-transform: uppercase;
+}
+
+.receita-panel__table th:nth-child(1),
+.receita-panel__col-medicamento {
+  width: 20%;
+}
+
+.receita-panel__table th:nth-child(2),
+.receita-panel__table td:nth-child(2) {
+  width: 12%;
+}
+
+.receita-panel__table th:nth-child(3),
+.receita-panel__table td:nth-child(3) {
+  width: 9%;
+}
+
+.receita-panel__table th:nth-child(4),
+.receita-panel__col-posologia {
+  width: 35%;
+}
+
+.receita-panel__table th:nth-child(5),
+.receita-panel__table td:nth-child(5) {
+  width: 10%;
+}
+
+.receita-panel__table th:nth-child(6),
+.receita-panel__table td:nth-child(6) {
+  width: 6%;
+}
+
+.receita-panel__table th:nth-child(7),
+.receita-panel__table td:nth-child(7) {
+  width: 3rem;
+  min-width: 3rem;
+  max-width: 3rem;
+  padding-left: 0.2rem;
+  padding-right: 0.2rem;
+  text-align: center;
+}
+
+.receita-panel__table td {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.receita-panel__obs {
+  flex-shrink: 0;
+}
+
+.receita-panel__add {
+  flex-shrink: 0;
+  align-self: flex-start;
+}

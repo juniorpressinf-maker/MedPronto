@@ -1,0 +1,26 @@
+---
+description: MedPronto — após mudanças no código, build automático; usuário só para/abre ou Ctrl+F5
+alwaysApply: true
+---
+
+# Ver mudanças no MedPronto
+
+## Para o usuário (instrução final)
+
+Depois de alterações no projeto, diga **somente**:
+
+- Parar o MedPronto e abrir de novo pelo atalho, **ou**
+- **Ctrl+F5** no navegador.
+
+**Nunca** peça para rodar `npm`, `npm run build`, PowerShell ou terminal.
+
+## Para o agente (antes de encerrar)
+
+Se alterou `frontend/` ou `backend/`:
+
+1. Recompilar com Node portátil: `$env:PATH = "d:\MedPronto\node;$env:PATH"`
+2. Frontend: `npm run build -w frontend` (a partir de `d:\MedPronto`)
+3. Backend: `npm run build -w backend` se mudou API/rotas
+4. Se o servidor estava rodando e mudou só frontend, Ctrl+F5 basta; se mudou backend, parar e iniciar de novo
+
+O launcher (`iniciar.vbs`) também recompila sozinho se o usuário abrir pelo atalho — backup, não substitui o build do agente.
