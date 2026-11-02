@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { DataIsoInput } from "../components/DataIsoInput";
+import { ClinicaBrandMark } from "../components/ClinicaBrandMark";
 import { PageHeader } from "../components/PageHeader";
 import {
   ApiError,
@@ -387,6 +388,7 @@ export function FilaMedicoPage() {
       <PageHeader
         title="Sala de espera"
         subtitle={subtitulo}
+        leading={<ClinicaBrandMark size="lg" tone="light" showSubtitle={false} />}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {podeFiltrarQualquerMedico ? (
