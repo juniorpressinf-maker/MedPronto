@@ -6,6 +6,8 @@ import { api } from "../lib/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronRight, LogOut } from "lucide-react";
 import { ClinicaBrandMark } from "./ClinicaBrandMark";
+import { ChatFloatingButton } from "./ChatFloatingButton";
+import { ChatDrawer } from "./ChatDrawer";
 import {
   loadNavTreeOpen,
   navBranchKey,
@@ -104,6 +106,42 @@ export function Layout() {
   const [dbOk, setDbOk] = useState<boolean | null>(null);
   const [servidorEndpoint, setServidorEndpoint] = useState<string | null>(null);
   const [openBranches, setOpenBranches] = useState<NavTreeOpenMap>(loadNavTreeOpen);
+  const [unreadChat, setUnreadChat] = useState(0);
+  const [chatOpen, setChatOpen] = useState(false);
+
+  // Notificação sonora simples (Web Audio API)
+  const playChatNotification = useCallback(() => {
+    try {
+      const audio = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = audio.createOscillator();
+      const gain = audio.createGain();
+      const filter = audio.createBiquadFilter();
+
+      osc.type = "sine";
+      osc.frequency.value = 880; // A5
+      filter.type = "lowpass";
+      filter.frequency.value = 1200;
+
+      gain.gain.value = 0.25;
+
+      const t = audio.currentTime;
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(audio.destination);
+
+      osc.start(t);
+      // Envelope curto (ding)
+      gain.gain.setValueAtTime(0.25, t);
+      gain.gain.linearRampToValueAtTime(0, t + 0.6);
+
+      setTimeout(() => {
+        osc.stop();
+        audio.close();
+      }, 700);
+    } catch {
+      /* silencioso se o navegador bloquear */
+    }
+  }, []);
   const navItems = useMemo(
     () => filtrarNavegacao(navigation, permissoes),
     [permissoes],
@@ -151,6 +189,35 @@ export function Layout() {
       },
     );
   }, []);
+
+  // Polling do total de mensagens não lidas do chat
+  useEffect(() => {
+    if (!temModulo(permissoes, "chat_interno")) return;
+
+    let mounted = true;
+    const tick = () => {
+      fetch("/api/chat/unread-total", { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : { total: 0 }))
+        .then((d: { total?: number }) => {
+          if (!mounted) return;
+          const novo = d.total ?? 0;
+          if (novo > unreadChat && !chatOpen) {
+            // Nova mensagem chegou e o chat não está aberto → notifica
+            playChatNotification();
+          }
+          setUnreadChat(novo);
+        })
+        .catch(() => {
+          /* silencioso */
+        });
+    };
+    tick();
+    const id = setInterval(tick, 5000);
+    return () => {
+      mounted = false;
+      clearInterval(id);
+    };
+  }, [permissoes, chatOpen, unreadChat, playChatNotification]);
 
   return (
     <div className="app-shell flex min-h-screen">
@@ -209,6 +276,16 @@ export function Layout() {
       <main className="app-main flex flex-1 flex-col min-h-0 overflow-hidden">
         <Outlet />
       </main>
+
+      {/* Chat interno flutuante (aparece apenas para quem tem permissão) */}
+      {temModulo(permissoes, "chat_interno") && (
+        <ChatFloatingButton
+          unreadCount={unreadChat}
+          onClick={() => setChatOpen(true)}
+        />
+      )}
+
+      <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} />
     </div>
   );
 }

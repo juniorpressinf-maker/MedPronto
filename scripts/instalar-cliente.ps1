@@ -145,6 +145,8 @@ try {
     }
     # [5] Build producao (dist precisa existir antes do db:migrate no pacote sem backend/src)
     Update-MedProntoProgress $progress 5 'Preparando sistema para uso...' 'Compilando telas e servidor.'
+    # Antes do build: arquivos removidos do projeto (ex.: agenda antiga) quebrariam o tsc.
+    Remove-MedProntoArquivosObsoletos -InstallDir $InstallDir
     Log '[5/7] build...'
     Ensure-MedProntoBuild -InstallDir $InstallDir -Tools $tools -Log { param($m) Log "  $m" }
 

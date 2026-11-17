@@ -96,7 +96,14 @@ export function ContaItemExameVinculo({
   };
 
   if (!editavel && !exameAnexoId) {
-    return <span className="text-[var(--muted)]">—</span>;
+    return (
+      <span
+        className="text-xs text-[var(--muted)]"
+        title="Anexe pela Sala de espera (botão Exames) ou pela tela de atendimento"
+      >
+        Sem resultado
+      </span>
+    );
   }
 
   return (

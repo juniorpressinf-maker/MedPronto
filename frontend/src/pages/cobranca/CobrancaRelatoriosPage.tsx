@@ -164,6 +164,14 @@ function RelatorioResumoPanel({
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot>
+                    <tr className="relatorio-total">
+                      <td>Total</td>
+                      <td className="text-right whitespace-nowrap">
+                        {formatBRL(relatorio.por_forma.reduce((t, x) => t + x.valor_centavos, 0))}
+                      </td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             )}
@@ -204,18 +212,21 @@ function RelatorioResumoPanel({
                       </tr>
                     ))}
                   </tbody>
-                  {totalAFaturarTabela > 0 ? (
-                    <tfoot>
-                      <tr>
-                        <td colSpan={4} className="text-right font-semibold">
-                          Total operadoras a faturar
-                        </td>
-                        <td className="text-right font-bold whitespace-nowrap">
-                          {formatBRL(totalAFaturarTabela)}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  ) : null}
+                  <tfoot>
+                    <tr className="relatorio-total">
+                      <td>Total</td>
+                      <td className="text-right">{relatorio.por_convenio.reduce((t, x) => t + x.atendimentos, 0)}</td>
+                      <td className="text-right whitespace-nowrap">
+                        {formatBRL(relatorio.por_convenio.reduce((t, x) => t + x.total_itens_centavos, 0))}
+                      </td>
+                      <td className="text-right whitespace-nowrap">
+                        {formatBRL(relatorio.por_convenio.reduce((t, x) => t + x.arrecadado_centavos, 0))}
+                      </td>
+                      <td className="text-right whitespace-nowrap">
+                        {totalAFaturarTabela > 0 ? formatBRL(totalAFaturarTabela) : "—"}
+                      </td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             )}
@@ -246,6 +257,15 @@ function RelatorioResumoPanel({
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot>
+                    <tr className="relatorio-total">
+                      <td>Total</td>
+                      <td className="text-right">{relatorio.por_procedimento.reduce((t, x) => t + x.quantidade, 0)}</td>
+                      <td className="text-right whitespace-nowrap">
+                        {formatBRL(relatorio.por_procedimento.reduce((t, x) => t + x.valor_centavos, 0))}
+                      </td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             )}

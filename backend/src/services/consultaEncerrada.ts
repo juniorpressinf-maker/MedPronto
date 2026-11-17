@@ -4,6 +4,8 @@ type ProntuarioFlags = {
   agendamento_id: number | null;
   retificacao_de_id: number | null;
   retificacao_finalizada: number | boolean | null;
+  /** Gravado ao finalizar; se presente, a consulta está encerrada (independe do status do horário). */
+  template_snapshot_json?: string | null;
 };
 
 function retificacaoEmAndamento(pr: ProntuarioFlags): boolean {
@@ -14,6 +16,10 @@ export function isConsultaEncerrada(pr: ProntuarioFlags): boolean {
   if (retificacaoEmAndamento(pr)) return false;
 
   if (pr.retificacao_de_id != null) return true;
+
+  // Defesa extra: consulta já finalizada nunca volta a ser editável,
+  // mesmo que o status do horário seja alterado depois.
+  if (pr.template_snapshot_json?.trim()) return true;
 
   if (!pr.agendamento_id) return true;
 
@@ -30,7 +36,7 @@ export function loadFlagsProntuario(
 ): ProntuarioFlags | undefined {
   return getDb()
     .prepare(
-      `SELECT agendamento_id, retificacao_de_id, retificacao_finalizada
+      `SELECT agendamento_id, retificacao_de_id, retificacao_finalizada, template_snapshot_json
        FROM prontuarios WHERE id = ?`,
     )
     .get(prontuarioId) as ProntuarioFlags | undefined;

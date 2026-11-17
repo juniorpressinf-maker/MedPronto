@@ -1,3 +1,5 @@
+import "./lib/exigirCopia.js"; // trava: nunca no banco real (rodar via npm run test:*)
+import { limparResiduos2099 } from "./lib/limparResiduos2099.js";
 /**
 
  * Aceite M9 — guia convênio manual e fechamento a_faturar_convenio.
@@ -32,7 +34,8 @@ import { fecharConta } from "../src/services/cobrancaPagamentos.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const dbPath = path.resolve(__dirname, "../../data/medpronto.db");
+// A7: DATABASE_PATH permite rodar numa cópia (scripts/test-a7-regressao.mjs); sem ele, banco real como antes.
+const dbPath = process.env.DATABASE_PATH || path.resolve(__dirname, "../../data/medpronto.db");
 
 
 
@@ -49,6 +52,7 @@ function main(): void {
   runMigrations();
 
   const db = new Database(dbPath);
+  limparResiduos2099(db); // resíduos de execuções antigas (ano 2099)
 
   db.pragma("foreign_keys = ON");
 
@@ -68,7 +72,7 @@ function main(): void {
 
   let convOperadora = db
 
-    .prepare(`SELECT id FROM convenios WHERE tipo = 'operadora' AND ativo = 1 LIMIT 1`)
+    .prepare(`SELECT id FROM convenios WHERE tipo = 'operadora' AND ativo = 1 AND exige_guia = 1 LIMIT 1`)
 
     .get() as { id: number } | undefined;
 
@@ -76,7 +80,7 @@ function main(): void {
 
     const ins = db
 
-      .prepare(`INSERT INTO convenios (nome, tipo, ativo) VALUES ('Teste Operadora M9', 'operadora', 1)`)
+      .prepare(`INSERT INTO convenios (nome, tipo, ativo, exige_guia) VALUES ('Teste Operadora M9', 'operadora', 1, 1)`)
 
       .run();
 

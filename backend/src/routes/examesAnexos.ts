@@ -128,7 +128,8 @@ examesAnexosRouter.get(
 
 examesAnexosRouter.post(
   "/paciente/:pacienteId",
-  requireModulo("exames_anexos"),
+  // Médico (prontuario_escrever) anexa laudo do exame que fez — Sala de espera.
+  requireModulo("exames_anexos", "prontuario_escrever"),
   upload.single("arquivo"),
   asyncHandler(async (req, res) => {
     const pacienteId = Number(req.params.pacienteId);
@@ -149,6 +150,16 @@ examesAnexosRouter.post(
       }
       res.status(404).json({ error: "Paciente não encontrado" });
       return;
+    }
+    try {
+      assertMedicoVinculoPaciente(req, pacienteId);
+    } catch (e) {
+      try {
+        fs.unlinkSync(file.path);
+      } catch {
+        /* ignore */
+      }
+      throw e;
     }
 
     const descricao = String(req.body?.descricao ?? "").trim().slice(0, 500) || null;

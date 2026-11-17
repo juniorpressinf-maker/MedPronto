@@ -19,6 +19,8 @@ type Props = {
   /** Se informado, Salvar vira botão (não submit) — útil fora de &lt;form&gt; */
   onSave?: () => void;
   children?: ReactNode;
+  /** Salvamento automático: mostra o estado ("✓ Salvo às…") no lugar do botão Salvar. */
+  indicador?: string | null;
 };
 
 /** Voltar à esquerda; Salvar e demais ações à direita */
@@ -35,6 +37,7 @@ export function FormActions({
   saved,
   onSave,
   children,
+  indicador,
 }: Props) {
   const showSave =
     !somenteLeitura &&
@@ -58,7 +61,15 @@ export function FormActions({
       ) : null}
       <div className="form-actions__direita">
         {children}
-        {showSave ? saveBtn : null}
+        {indicador !== undefined ? (
+          indicador ? (
+            <span className="text-sm text-[var(--muted)] self-center whitespace-nowrap" role="status">
+              {indicador}
+            </span>
+          ) : null
+        ) : showSave ? (
+          saveBtn
+        ) : null}
       </div>
     </div>
   );

@@ -85,6 +85,11 @@ const configSchema = z.object({
     .regex(/^\d{2}:\d{2}$/, "Use HH:MM")
     .optional()
     .nullable(),
+  hora_fixa_tarde: z
+    .string()
+    .regex(/^d{2}:d{2}$/, "Use HH:MM")
+    .optional()
+    .nullable(),
 });
 
 function validarConfigHoraFixa(body: z.infer<typeof configSchema>): string | null {
@@ -116,6 +121,8 @@ whatsappRouter.put(
       body.hora_fixa_mensagem !== undefined
         ? body.hora_fixa_mensagem
         : atual.hora_fixa_mensagem;
+    const horaFixaTarde =
+      body.hora_fixa_tarde !== undefined ? body.hora_fixa_tarde : atual.hora_fixa_tarde;
     getDb()
       .prepare(
         `UPDATE config_whatsapp SET
@@ -123,7 +130,8 @@ whatsappRouter.put(
            ativo = ?,
            template_confirmacao = ?,
            hora_fixa_ativa = ?,
-           hora_fixa_mensagem = ?
+           hora_fixa_mensagem = ?,
+           hora_fixa_tarde = ?
          WHERE id = 1`,
       )
       .run(
@@ -133,6 +141,7 @@ whatsappRouter.put(
           TEMPLATE_PADRAO,
         horaFixaAtiva,
         horaFixaMsg,
+        horaFixaTarde,
       );
     if (body.hora_envio_automatico !== undefined) {
       getDb()

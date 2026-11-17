@@ -35,6 +35,14 @@ async function encerrarSessaoNavegador() {
   sessionStorage.removeItem(SERVER_BOOT_KEY);
 }
 
+async function marcarSessaoNavegador() {
+  const h = await api.health().catch(() => null);
+  sessionStorage.setItem(BROWSER_SESSION_KEY, "1");
+  if (h?.inicio_servidor) {
+    sessionStorage.setItem(SERVER_BOOT_KEY, h.inicio_servidor);
+  }
+}
+
 async function syncRestoreMarker() {
   try {
     const h = await api.health();
@@ -79,6 +87,8 @@ interface AuthState {
 
 interface AuthCtx extends AuthState {
   login: (username: string, senha: string) => Promise<void>;
+  /** Cria o primeiro administrador com a sessão aberta (chamar refresh depois). Devolve o login gravado. */
+  setup: (username: string, senha: string) => Promise<string>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
   permissoes: string[];
@@ -173,14 +183,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new ApiError(data.error ?? "Erro no login", res.status);
-      const h = await api.health().catch(() => null);
-      sessionStorage.setItem(BROWSER_SESSION_KEY, "1");
-      if (h?.inicio_servidor) {
-        sessionStorage.setItem(SERVER_BOOT_KEY, h.inicio_servidor);
-      }
+      await marcarSessaoNavegador();
       await refresh();
     },
     [refresh],
+  );
+
+  const setup = useCallback(
+    async (username: string, senha: string) => {
+      const res = await fetch("/api/auth/setup", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, senha }),
+      });
+      const data = (await res.json()) as { error?: string; username?: string };
+      if (!res.ok) throw new ApiError(data.error ?? "Erro", res.status);
+      await marcarSessaoNavegador();
+      return data.username ?? username;
+    },
+    [],
   );
 
   const logout = useCallback(async () => {
@@ -195,7 +217,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <Ctx.Provider value={{ ...state, login, logout, refresh }}>
+    <Ctx.Provider value={{ ...state, login, setup, logout, refresh }}>
       {children}
     </Ctx.Provider>
   );

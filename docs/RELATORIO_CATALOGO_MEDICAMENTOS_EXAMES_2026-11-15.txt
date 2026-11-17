@@ -1,0 +1,72 @@
+MEDPRONTO — BUSCA AUTOMÁTICA DE MEDICAMENTOS E EXAMES + MEMÓRIA DE PRESCRIÇÃO
+Data: 15/11/2026
+=====================================================================
+
+1. O QUE O MÉDICO VAI VER
+---------------------------------------------------------------------
+- Receita: ao digitar 2 letras do medicamento aparece uma lista de
+  sugestões. Os que ele mais receita vêm primeiro, marcados com ★.
+- Memória de prescrição: ao escolher o medicamento, dose, via,
+  posologia, quantidade e dias já vêm preenchidos do jeito que ESSE
+  médico costuma receitar.
+  - Se ele já receitou de formas diferentes, aparecem até 3 opções
+    clicáveis abaixo da linha.
+  - O "×" ao lado de uma opção faz o sistema não sugerir mais aquela
+    forma (útil quando foi digitada errada).
+  - Cada médico tem a sua memória; um não vê a do outro.
+  - Já começa funcionando com as receitas antigas do médico.
+- Pedido de exames: a mesma busca. Escolher um exame já passa para a
+  próxima linha.
+- Aprende sozinho: um nome que não está na lista, depois de usado numa
+  receita ou pedido, passa a ser sugerido.
+- Continua sendo texto livre: o médico pode digitar qualquer coisa.
+- Receitas e pedidos já feitos NÃO mudam.
+
+2. LISTAS QUE JÁ VÊM NO SISTEMA
+---------------------------------------------------------------------
+- Medicamentos: 9.263 nomes, do cadastro oficial da ANVISA (só
+  registros ativos). O nome comercial vem com o princípio ativo, por
+  exemplo "NOVALGINA (DIPIRONA)". Homeopáticos, gases medicinais e
+  radiofármacos ficaram de fora.
+- Exames: 2.602 nomes, da tabela TUSS da ANS (laboratório, imagem,
+  ECG, endoscopia etc.), mais cerca de 75 nomes curtos do dia a dia,
+  como HEMOGRAMA COMPLETO, TSH e GLICEMIA DE JEJUM.
+- A carga é automática na primeira vez que o MedPronto abrir.
+- A lista de exames saiu de uma cópia da TUSS publicada no GitHub, não
+  diretamente do site da ANS, então pode estar um pouco desatualizada.
+
+3. CADASTRO
+---------------------------------------------------------------------
+Configurações → Medicamentos e exames (admin e médicos):
+- buscar;
+- incluir nome;
+- corrigir nome;
+- desativar ou ativar (um nome desativado não é mais sugerido);
+- ver quantas vezes cada nome foi usado e de onde veio (lista oficial,
+  cadastrado na clínica ou digitado em atendimento).
+
+4. ARQUIVOS
+---------------------------------------------------------------------
+- database/053_catalogo_nomes.sql (novo, aplicado ao abrir o sistema)
+- backend/src/services/catalogoNomes.ts (novo)
+- backend/src/routes/catalogo.ts (novo), routes/documentos.ts, routes/index.ts
+- backend/src/main.ts e config.ts (carga das listas)
+- backend/data/catalogo_medicamentos.json e catalogo_exames.json
+- backend/scripts/gerar-catalogos.ts (para atualizar as listas no futuro)
+- frontend: NomeAutocomplete.tsx (novo), CatalogoNomesPage.tsx (novo),
+  AtendimentoReceitaPanel.tsx, AtendimentoPedidoPanel.tsx, api.ts,
+  App.tsx, navigation.ts, messageBoxContext.tsx, prontuario-papel.css
+
+5. TESTES E BUILD
+---------------------------------------------------------------------
+- test:cat1 (novo, na cópia do banco) ........................ OK
+  - busca com ou sem acento;
+  - nome pela metade (salvamento automático) não é registrado;
+  - nome novo vira sugestão;
+  - memória por médico, e a opção oculta some;
+  - exames sugeridos;
+  - cadastro desativa a sugestão e bloqueia nome duplicado;
+  - receita continua como foi gravada.
+- Regressão completa (test:todos): 35/35 OK
+- Build backend e frontend: OK
+- Para ver: fechar e abrir o atalho do MedPronto (ou Ctrl+F5).

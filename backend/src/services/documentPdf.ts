@@ -1,5 +1,6 @@
 import PDFDocument from "pdfkit";
 import { parseDataImageUrl } from "../utils/imageDataUrl.js";
+import { blocosHtml } from "./textoFormatado.js";
 
 export type PdfDocContext = {
   clinica_nome: string;
@@ -13,7 +14,11 @@ export type PdfDocContext = {
   paciente_nasc?: string | null;
   paciente_cpf?: string | null;
   data_emissao: string;
+  /** Papel timbrado do médico: sem cabeçalho da clínica; margens em branco (mm) p/ o timbre. */
+  timbrado?: { topo_mm: number; rodape_mm: number } | null;
 };
+
+const MM = 72 / 25.4;
 
 function formatDataBr(iso: string): string {
   const base = iso.trim().slice(0, 10);
@@ -28,7 +33,7 @@ function areaUtil(doc: PDFKit.PDFDocument) {
   return { left, width };
 }
 
-function drawHeader(doc: PDFKit.PDFDocument, ctx: PdfDocContext, titulo: string) {
+function drawCabecalhoClinica(doc: PDFKit.PDFDocument, ctx: PdfDocContext) {
   const { left, width } = areaUtil(doc);
   const logo = ctx.clinica_logo ? parseDataImageUrl(ctx.clinica_logo) : null;
   let textX = left;
@@ -54,6 +59,17 @@ function drawHeader(doc: PDFKit.PDFDocument, ctx: PdfDocContext, titulo: string)
 
   doc.x = left;
   doc.moveDown(1.2);
+}
+
+function drawHeader(doc: PDFKit.PDFDocument, ctx: PdfDocContext, titulo: string) {
+  const { left, width } = areaUtil(doc);
+  if (ctx.timbrado) {
+    // O timbre já traz a clínica: começa direto no título, abaixo da margem do papel.
+    doc.x = left;
+    doc.y = doc.page.margins.top;
+  } else {
+    drawCabecalhoClinica(doc, ctx);
+  }
   doc.fontSize(13).font("Helvetica-Bold").text(titulo, left, doc.y, {
     width,
     align: "center",
@@ -79,9 +95,19 @@ function drawHeader(doc: PDFKit.PDFDocument, ctx: PdfDocContext, titulo: string)
   doc.moveDown(0.8);
 }
 
-function pdfToBuffer(build: (doc: PDFKit.PDFDocument) => void): Promise<Buffer> {
+/** Margens da página: papel timbrado reserva topo/rodapé (em mm) em TODAS as páginas. */
+function pdfToBuffer(
+  build: (doc: PDFKit.PDFDocument) => void,
+  ctx?: PdfDocContext,
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: "A4", margin: 50 });
+    const t = ctx?.timbrado;
+    const doc = new PDFDocument({
+      size: "A4",
+      margins: t
+        ? { top: Math.max(30, t.topo_mm * MM), bottom: Math.max(30, t.rodape_mm * MM), left: 50, right: 50 }
+        : { top: 50, bottom: 50, left: 50, right: 50 },
+    });
     const chunks: Buffer[] = [];
     doc.on("data", (c) => chunks.push(c as Buffer));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
@@ -135,7 +161,7 @@ export function gerarPdfReceita(
     doc.text("_________________________________________", { align: "center" });
     doc.text(ctx.medico_nome, { align: "center" });
     if (ctx.medico_crm) doc.text(`CRM ${ctx.medico_crm}`, { align: "center" });
-  });
+  }, ctx);
 }
 
 export function gerarPdfAtestado(
@@ -171,7 +197,7 @@ export function gerarPdfAtestado(
     doc.text("_________________________________________", { align: "center" });
     doc.text(ctx.medico_nome, { align: "center" });
     if (ctx.medico_crm) doc.text(`CRM ${ctx.medico_crm}`, { align: "center" });
-  });
+  }, ctx);
 }
 
 export function gerarPdfPedidoExame(
@@ -193,13 +219,66 @@ export function gerarPdfPedidoExame(
     doc.text("_________________________________________", { align: "center" });
     doc.text(ctx.medico_nome, { align: "center" });
     if (ctx.medico_crm) doc.text(`CRM ${ctx.medico_crm}`, { align: "center" });
-  });
+  }, ctx);
 }
 
 export type ConsultaPdfCampo = {
   label: string;
   valor: string;
+  /** Campo "texto formatado": HTML restrito — desenhado com negrito/itálico/listas/títulos. */
+  html?: string;
 };
+
+function fonte(negrito: boolean, italico: boolean): string {
+  if (negrito && italico) return "Helvetica-BoldOblique";
+  if (negrito) return "Helvetica-Bold";
+  if (italico) return "Helvetica-Oblique";
+  return "Helvetica";
+}
+
+/** Desenha o HTML do editor (já limpo) no PDF; quebra de página é automática. */
+function desenharTextoFormatado(doc: PDFKit.PDFDocument, html: string, left: number, width: number) {
+  for (const b of blocosHtml(html)) {
+    const trechos = b.trechos.filter((t) => t.texto);
+    if (!trechos.length) {
+      doc.moveDown(0.4);
+      continue;
+    }
+    // marcador cabe "10." / "100." sem encostar no texto
+    const recuo = b.tipo === "li" ? (b.marcador === "•" ? 18 : 28) : 0;
+    const tamanho = b.tipo === "h3" ? 12.5 : 11;
+    if (b.tipo === "h3") doc.moveDown(0.3);
+    if (b.tipo === "li") {
+      const y = doc.y;
+      doc.font("Helvetica").fontSize(tamanho).text(b.marcador ?? "•", left + 4, y, { width: recuo - 6, lineBreak: false });
+      doc.y = y;
+    }
+    // <br> = nova linha dentro do mesmo parágrafo: cada linha é uma sequência de trechos
+    const linhas: typeof trechos[] = [[]];
+    for (const t of trechos) {
+      const partes = t.texto.split("\n");
+      partes.forEach((p, k) => {
+        if (k > 0) linhas.push([]);
+        if (p) linhas[linhas.length - 1]!.push({ ...t, texto: p });
+      });
+    }
+    for (const linha of linhas) {
+      if (!linha.length) {
+        doc.moveDown(1);
+        continue;
+      }
+      linha.forEach((t, i) => {
+        doc.font(fonte(t.negrito || b.tipo === "h3", t.italico)).fontSize(tamanho);
+        const opts = { width: width - recuo, lineGap: 2, underline: t.sublinhado, continued: i < linha.length - 1 };
+        if (i === 0) doc.text(t.texto, left + recuo, doc.y, opts);
+        else doc.text(t.texto, opts);
+      });
+    }
+    doc.moveDown(b.tipo === "li" ? 0.15 : 0.4);
+  }
+  doc.font("Helvetica").fontSize(11);
+  doc.x = left;
+}
 
 export function gerarPdfConsulta(
   ctx: PdfDocContext,
@@ -234,10 +313,14 @@ export function gerarPdfConsulta(
       doc.x = left;
       doc.font("Helvetica-Bold").text(`${campo.label}:`, left, doc.y, { width });
       doc.x = left;
-      doc.font("Helvetica").text(campo.valor, left, doc.y, {
-        width,
-        lineGap: 2,
-      });
+      if (campo.html) {
+        desenharTextoFormatado(doc, campo.html, left, width);
+      } else {
+        doc.font("Helvetica").text(campo.valor, left, doc.y, {
+          width,
+          lineGap: 2,
+        });
+      }
       doc.moveDown(0.5);
     }
     if (extras?.conclusao) {
@@ -261,7 +344,7 @@ export function gerarPdfConsulta(
     doc.text("_________________________________________", { align: "center" });
     doc.text(ctx.medico_nome, { align: "center" });
     if (ctx.medico_crm) doc.text(`CRM ${ctx.medico_crm}`, { align: "center" });
-  });
+  }, ctx);
 }
 
 export type AdmissionalPdfDados = {

@@ -1,6 +1,7 @@
 import { Search } from "lucide-react";
 import { useState } from "react";
 import { CidAutocomplete } from "./CidAutocomplete";
+import { EditorTextoFormatado } from "./EditorTextoFormatado";
 import type { FichaCampoDef } from "../lib/fichaTipos";
 import { rotuloOpcaoEscolha } from "../lib/asoModelo";
 import "../ficha-folha.css";
@@ -57,6 +58,20 @@ export function FichaCamposCorpo({
   return (
     <div className="prontuario-corpo">
       {ordenados.map((c) => {
+        if (c.tipo === "texto_formatado") {
+          return (
+            <section key={c.id} className="prontuario-secao">
+              <label className="prontuario-secao__titulo">{c.label}</label>
+              <EditorTextoFormatado
+                valor={getStr(dados, c.id)}
+                readOnly={readOnly}
+                placeholder={c.label}
+                onChange={(html) => set(c.id, html)}
+              />
+            </section>
+          );
+        }
+
         if (c.tipo === "textarea") {
           return (
             <section key={c.id} className="prontuario-secao">

@@ -39,6 +39,8 @@ const ROTA_MODULO: Record<string, string | string[]> = {
   "/configuracoes/usuarios": "usuarios",
   "/configuracoes/backup": "backup",
   "/configuracoes/fichas": ["fichas_config", "fichas_medico"],
+  "/configuracoes/modelos-aso": ["fichas_config", "fichas_medico"],
+  "/cadastros/medicamentos-exames": ["fichas_config", "fichas_medico"],
   "/configuracoes/remoto": "remoto",
   "/configuracoes/licenca": "licenca",
   "/configuracoes/whatsapp": "whatsapp",

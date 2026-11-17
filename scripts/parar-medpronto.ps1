@@ -1,6 +1,10 @@
 # Encerra API, tunel e navegador do MedPronto nesta pasta (sem depender do wmic).
 param(
-    [string]$InstallDir = ""
+    [string]$InstallDir = "",
+    # Launcher: nao fecha a janela (splash ja aberto)
+    [switch]$KeepBrowser,
+    # Launcher: fecha so as janelas antigas do MedPronto (antes de abrir o splash)
+    [switch]$BrowserOnly
 )
 
 $ErrorActionPreference = 'Continue'
@@ -38,6 +42,24 @@ function Stop-PidSafe {
     try { Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue } catch { }
 }
 
+function Stop-MedProntoBrowsers {
+    $all = @()
+    try {
+        $all = @(Get-CimInstance Win32_Process -Filter "Name='msedge.exe' OR Name='chrome.exe'" -ErrorAction SilentlyContinue)
+    } catch { }
+    foreach ($b in $all) {
+        $c = [string]$b.CommandLine
+        if ($c -and $c.IndexOf('edge-medpronto', [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            Stop-PidSafe ([int]$b.ProcessId)
+        }
+    }
+}
+
+if ($BrowserOnly) {
+    Stop-MedProntoBrowsers
+    exit 0
+}
+
 foreach ($uri in @(
         'http://127.0.0.1:3021/api/auth/logout',
         'http://127.0.0.1:3021/api/shutdown'
@@ -52,7 +74,24 @@ Start-Sleep -Milliseconds 600
 $rootPrefix = $InstallDir + '\'
 $deadline = (Get-Date).AddSeconds(15)
 
+# 1o o loop de reinicio (_api-loop.cmd) - senao ele religa a API logo apos matar o node.
+# So cmd.exe com "_api-loop" (nao mata o cmd que esta rodando o parar.bat).
+function Stop-ApiLoops {
+    $loops = @()
+    try {
+        $loops = @(Get-CimInstance Win32_Process -Filter "Name='cmd.exe'" -ErrorAction SilentlyContinue)
+    } catch { }
+    foreach ($l in $loops) {
+        $c = [string]$l.CommandLine
+        if ($c -and $c.IndexOf('_api-loop', [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+            $c.IndexOf($InstallDir, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            Stop-PidSafe ([int]$l.ProcessId)
+        }
+    }
+}
+
 do {
+    Stop-ApiLoops
     foreach ($port in 3021, 5176) {
         foreach ($procId in @(Get-PidsListeningOnPort $port)) {
             Stop-PidSafe $procId
@@ -87,7 +126,8 @@ do {
         $isNode = $name -ieq 'node.exe'
         $isTunnel = $name -ieq 'cloudflared.exe'
         $isLauncher = $name -ieq 'wscript.exe' -or $name -ieq 'cscript.exe'
-        $isBrowser = ($name -ieq 'msedge.exe' -or $name -ieq 'chrome.exe') -and
+        $isBrowser = (-not $KeepBrowser) -and
+            ($name -ieq 'msedge.exe' -or $name -ieq 'chrome.exe') -and
             ($cmd -and $cmd.IndexOf('edge-medpronto', [StringComparison]::OrdinalIgnoreCase) -ge 0)
 
         if (($isNode -or $isTunnel -or $isLauncher) -and ($underRoot -or $cmdHasRoot)) {

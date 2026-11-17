@@ -1,5 +1,6 @@
 import type { Database } from "better-sqlite3";
 import { getDb } from "../db/index.js";
+import { reabrirConta } from "./cobrancaPagamentos.js";
 import { hojeIsoLocal } from "../lib/diasUteis.js";
 import type { ModoClinico } from "./cobrancaCadastros.js";
 import {
@@ -16,6 +17,8 @@ export type AgendamentoProcedimentoApi = {
   nome: string;
   modo_clinico: ModoClinico;
   ordem: number;
+  /** Agenda Nova (047): cor do procedimento — vem em anexarProcedimentosAgendamentos. */
+  cor?: string | null;
 };
 
 type ProcCarregado = {
@@ -30,10 +33,66 @@ type ProcCarregado = {
 const STATUS_AGENDA_BLOQUEADO = new Set(["cancelado", "nao_compareceu"]);
 
 export class AgendamentoAtendimentoError extends Error {
-  constructor(message: string) {
+  /** "conta_fechada": a conta já foi recebida — a tela pode oferecer "Reabrir e incluir". */
+  codigo?: string;
+  constructor(message: string, codigo?: string) {
     super(message);
+    this.codigo = codigo;
     this.name = "AgendamentoAtendimentoError";
   }
+}
+
+/**
+ * Bloco 1 — horário saindo do atendimento (cancelado, não compareceu ou
+ * desfazer check-in → agendado). Chamar DENTRO da transação que muda o status.
+ *
+ * - Com prontuário ou ASO no horário: recusa (o registro clínico ficaria solto
+ *   e a consulta finalizada voltaria a ser editável).
+ * - Conta em aberto sem pagamento: é cancelada junto (some do caixa).
+ * - Conta fechada ou com pagamento: recusa — resolva no caixa primeiro.
+ */
+export function prepararSaidaDoAtendimento(
+  agendamentoId: number,
+  db: Database = getDb(),
+): { conta_cancelada_id: number | null } {
+  const vinculo = db
+    .prepare(
+      `SELECT
+         EXISTS (SELECT 1 FROM prontuarios WHERE agendamento_id = ?) AS prontuario,
+         EXISTS (SELECT 1 FROM admissionais WHERE agendamento_id = ? AND status != 'cancelado') AS aso`,
+    )
+    .get(agendamentoId, agendamentoId) as { prontuario: number; aso: number };
+  if (vinculo.prontuario) {
+    throw new AgendamentoAtendimentoError(
+      "Este horário já tem prontuário aberto. Não é possível cancelar, marcar falta ou desfazer a chegada.",
+      "tem_prontuario",
+    );
+  }
+  if (vinculo.aso) {
+    throw new AgendamentoAtendimentoError(
+      "Este horário já tem ASO aberto. Não é possível cancelar, marcar falta ou desfazer a chegada.",
+      "tem_aso",
+    );
+  }
+
+  const conta = buscarContaPorAgendamento(agendamentoId, db);
+  if (!conta) return { conta_cancelada_id: null };
+
+  const pagos = (
+    db
+      .prepare(`SELECT COUNT(*) AS qtd FROM conta_pagamentos WHERE conta_id = ?`)
+      .get(conta.id) as { qtd: number }
+  ).qtd;
+  if (conta.status !== "em_aberto" || pagos > 0) {
+    throw new AgendamentoAtendimentoError(
+      "A conta deste horário já tem pagamento ou foi fechada. Resolva no caixa antes de cancelar.",
+      "conta_com_pagamento",
+    );
+  }
+  db.prepare(
+    `UPDATE contas_atendimento SET status = 'cancelada' WHERE id = ? AND status = 'em_aberto'`,
+  ).run(conta.id);
+  return { conta_cancelada_id: conta.id };
 }
 
 export const MSG_SLOT_PACIENTE_MEDICO_DUPLICADO =
@@ -211,7 +270,7 @@ export function anexarProcedimentosAgendamentos<T extends { id: number }>(
   const ph = ids.map(() => "?").join(",");
   const lista = db
     .prepare(
-      `SELECT ap.agendamento_id, p.id, p.nome, p.modo_clinico, ap.ordem
+      `SELECT ap.agendamento_id, p.id, p.nome, p.modo_clinico, ap.ordem, p.cor
        FROM agendamento_procedimentos ap
        JOIN procedimentos p ON p.id = ap.procedimento_id
        WHERE ap.agendamento_id IN (${ph})
@@ -405,6 +464,8 @@ export function sincronizarProcedimentosAgendamento(
     convenioId?: number;
     origemNovos?: "agenda" | "secretaria" | "medico";
     usuarioId: number;
+    /** Conta já recebida: reabre (mantém os pagamentos) para incluir e cobrar a diferença. */
+    reabrirConta?: boolean;
   },
   db: Database = getDb(),
 ): {
@@ -441,14 +502,43 @@ export function sincronizarProcedimentosAgendamento(
       );
     }
 
-    const conta = buscarContaPorAgendamento(params.agendamentoId, db);
+    let conta = buscarContaPorAgendamento(params.agendamentoId, db);
     if (conta && conta.status !== "em_aberto") {
-      throw new AgendamentoAtendimentoError(
-        "Reabra a conta para alterar procedimentos ou convênio",
-      );
+      if (params.reabrirConta && conta.status !== "cancelada") {
+        reabrirConta(conta.id, params.usuarioId, db);
+        conta = buscarContaPorAgendamento(params.agendamentoId, db);
+      } else {
+        throw new AgendamentoAtendimentoError(
+          "Reabra a conta para alterar procedimentos ou convênio: ela já foi recebida (os pagamentos feitos continuam valendo e a diferença fica pendente no caixa).",
+          "conta_fechada",
+        );
+      }
     }
 
     const procs = validarListaProcedimentos(params.procedimentoIds, db);
+
+    // B2 [6]: com prontuário/ASO já aberto, a lista não pode perder o
+    // procedimento que deu origem a ele (o registro clínico ficaria solto).
+    const clinico = db
+      .prepare(
+        `SELECT
+           EXISTS (SELECT 1 FROM prontuarios WHERE agendamento_id = ?) AS prontuario,
+           EXISTS (SELECT 1 FROM admissionais WHERE agendamento_id = ? AND status != 'cancelado') AS aso`,
+      )
+      .get(params.agendamentoId, params.agendamentoId) as { prontuario: number; aso: number };
+    if (clinico.prontuario && !procs.some((p) => p.modo_clinico === "prontuario")) {
+      throw new AgendamentoAtendimentoError(
+        "Este horário já tem prontuário aberto — mantenha um procedimento de consulta na lista.",
+        "tem_prontuario",
+      );
+    }
+    if (clinico.aso && !procs.some((p) => p.modo_clinico === "aso")) {
+      throw new AgendamentoAtendimentoError(
+        "Este horário já tem ASO aberto — mantenha o procedimento de ASO na lista.",
+        "tem_aso",
+      );
+    }
+
     const convenioId = params.convenioId ?? ag.convenio_id;
     if (params.convenioId != null) {
       assertConvenioAtivo(params.convenioId, db);

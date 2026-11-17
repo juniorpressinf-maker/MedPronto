@@ -13,6 +13,7 @@ import { ClinicaBrandMark } from "../components/ClinicaBrandMark";
 import { PageHeader } from "../components/PageHeader";
 import { VoltarLink } from "../components/VoltarButton";
 import { ApiError, api } from "../lib/api";
+import { useAuth } from "../lib/authContext";
 import { useMessageBox } from "../lib/messageBoxContext";
 import { loadScreenState, saveScreenState } from "../lib/screenState";
 
@@ -60,6 +61,7 @@ type Props = {
 
 export function LicencaPage({ standalone = false }: Props) {
   const navigate = useNavigate();
+  const { refresh: refreshAuth } = useAuth();
   const [searchParams] = useSearchParams();
   const msg = useMessageBox();
   const [lic, setLic] = useState<LicStatus | null>(null);
@@ -136,6 +138,7 @@ export function LicencaPage({ standalone = false }: Props) {
           next && next.startsWith("/") && !next.startsWith("//")
             ? next
             : "/login";
+        await refreshAuth();
         navigate(destino, { replace: true });
       } else {
         carregar();

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { AtendimentoCobrancaPanel } from "../components/AtendimentoCobrancaPanel";
 import { AtendimentoAtestadoPanel } from "../components/AtendimentoAtestadoPanel";
 import { AtendimentoExamesPanel } from "../components/AtendimentoExamesPanel";
+import { FinalizarExameDialog } from "../components/FinalizarExameDialog";
 import { AtendimentoHistoricoPanel } from "../components/AtendimentoHistoricoPanel";
 import { PacienteAtendimentoHistorico } from "../components/PacienteAtendimentoHistorico";
 import { AtendimentoPedidoPanel } from "../components/AtendimentoPedidoPanel";
@@ -14,6 +15,7 @@ import { ApiError, api, type FichaTemplate, type ProntuarioDetalhe } from "../li
 import { useClinicaBranding } from "../lib/clinicaBrandingContext";
 import { useMessageBox } from "../lib/messageBoxContext";
 import { temModulo } from "../lib/permissoes";
+import { ImpressaoPreferencia } from "../components/ImpressaoPreferencia";
 import { useAuth } from "../lib/authContext";
 import {
   normalizarDadosEntrada,
@@ -107,7 +109,7 @@ export function AtendimentoPage() {
   const location = useLocation();
   const locationState = (location.state as AtendimentoLocationState | null) ?? null;
   const msg = useMessageBox();
-  const { permissoes } = useAuth();
+  const { me, permissoes } = useAuth();
   const { branding } = useClinicaBranding();
   const [pr, setPr] = useState<ProntuarioDetalhe | null>(null);
   const [saving, setSaving] = useState(false);
@@ -117,6 +119,29 @@ export function AtendimentoPage() {
   );
   const [fichasOpcoes, setFichasOpcoes] = useState<FichaTemplate[]>([]);
   const [trocandoFicha, setTrocandoFicha] = useState(false);
+  // Horário misto (consulta + exames): laudo dos exames sem sair do atendimento.
+  const [temExamesHorario, setTemExamesHorario] = useState(false);
+  const [dialogExamesAberto, setDialogExamesAberto] = useState(false);
+  const agendamentoIdPr = pr?.agendamento_id ?? null;
+
+  useEffect(() => {
+    if (!agendamentoIdPr) {
+      setTemExamesHorario(false);
+      return;
+    }
+    let vivo = true;
+    void api
+      .agendamentoExamesResultado(agendamentoIdPr)
+      .then((r) => {
+        if (vivo) setTemExamesHorario(r.itens.length > 0);
+      })
+      .catch(() => {
+        if (vivo) setTemExamesHorario(false);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [agendamentoIdPr]);
 
   const podeReceita = temModulo(permissoes, "receituario");
   const podeDocumentos = temModulo(permissoes, "documentos");
@@ -152,10 +177,51 @@ export function AtendimentoPage() {
     setAba(id);
   };
 
+  // Rascunho: grava sozinho enquanto digita e ao sair da tela (antes só gravava ao Finalizar).
+  const ultimoSalvo = useRef<string | null>(null);
+  const prRef = useRef<ProntuarioDetalhe | null>(null);
+  const [rascunhoSalvoEm, setRascunhoSalvoEm] = useState<string | null>(null);
+  const editavel = (p: ProntuarioDetalhe | null) =>
+    Boolean(p) && !p!.consulta_encerrada && temModulo(permissoes, "prontuario_escrever");
+  const salvarRascunho = useCallback(async (): Promise<void> => {
+    const p = prRef.current;
+    if (!p || !editavel(p) || p.id !== prontuarioId) return;
+    const corpo = JSON.stringify(payloadProntuarioSave(p));
+    if (corpo === ultimoSalvo.current) return;
+    ultimoSalvo.current = corpo;
+    try {
+      await api.prontuarioSave(prontuarioId, JSON.parse(corpo));
+      setRascunhoSalvoEm(new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }));
+    } catch {
+      ultimoSalvo.current = null; // tenta de novo na próxima mudança
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prontuarioId, permissoes]);
+
+  useEffect(() => {
+    prRef.current = pr;
+    if (!pr || !editavel(pr)) return;
+    const t = window.setTimeout(() => void salvarRascunho(), 1500);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pr, salvarRascunho]);
+
+  // Saiu da tela (menu, voltar do navegador) ou fechou: grava o que faltou.
+  useEffect(() => {
+    const aoFechar = () => void salvarRascunho();
+    window.addEventListener("beforeunload", aoFechar);
+    return () => {
+      window.removeEventListener("beforeunload", aoFechar);
+      void salvarRascunho();
+    };
+  }, [salvarRascunho]);
+
   const carregar = useCallback(async () => {
     try {
       const data = await api.prontuarioGet(prontuarioId);
-      setPr(normalizarProntuarioDetalhe(data));
+      const norm = normalizarProntuarioDetalhe(data);
+      ultimoSalvo.current = JSON.stringify(payloadProntuarioSave(norm));
+      setPr(norm);
     } catch (e) {
       void msg.error(e instanceof ApiError ? e.message : "Erro ao carregar");
     }
@@ -253,6 +319,7 @@ export function AtendimentoPage() {
   };
 
   const voltarOrigem = async () => {
+    await salvarRascunho();
     if (pr && retificacaoEmAndamento(pr)) {
       await desistirRetificacao();
       return;
@@ -278,6 +345,16 @@ export function AtendimentoPage() {
   const ehRetificacao = Boolean(pr.retificacao_de_id);
   const emAndamento = retificacaoEmAndamento(pr);
   const somenteLeitura = Boolean(pr.consulta_encerrada) || !podeEscrever;
+
+  const botaoExamesHorario = temExamesHorario ? (
+    <button
+      type="button"
+      className="btn btn-secondary agenda-big-action"
+      onClick={() => setDialogExamesAberto(true)}
+    >
+      Exames do horário
+    </button>
+  ) : null;
 
   const fichaCampos = pr.ficha_campos ?? [];
   const fichaDados = pr.dados_json ?? {};
@@ -352,6 +429,10 @@ export function AtendimentoPage() {
           ehRetificacao
             ? `${pr.paciente_nome ?? ""} — pront. nº ${pr.id} corrige nº ${pr.retificacao_de_id}`
             : (pr.paciente_nome ?? "")
+        }
+        actions={
+          // Cada médico escolhe (só aparece no próprio atendimento): cabeçalho ou papel timbrado.
+          me?.id === pr.medico_id ? <ImpressaoPreferencia /> : undefined
         }
       />
       {emAndamento ? (
@@ -579,6 +660,11 @@ export function AtendimentoPage() {
 
               {!somenteLeitura ? (
               <footer className="prontuario-acoes">
+                {rascunhoSalvoEm && (
+                  <span className="text-xs text-[var(--muted)] self-center mr-2">
+                    Rascunho salvo às {rascunhoSalvoEm}
+                  </span>
+                )}
                 <button
                   type="button"
                   className="btn btn-primary agenda-big-action"
@@ -601,6 +687,7 @@ export function AtendimentoPage() {
                     Desistir da retificação
                   </button>
                 ) : null}
+                {botaoExamesHorario}
               </footer>
               ) : null}
 
@@ -618,6 +705,7 @@ export function AtendimentoPage() {
                   >
                     Só consulta (PDF)
                   </button>
+                  {botaoExamesHorario}
                 </footer>
               ) : null}
           </div>
@@ -712,6 +800,12 @@ export function AtendimentoPage() {
           </div>
         )}
       </div>
+      {dialogExamesAberto && agendamentoIdPr ? (
+        <FinalizarExameDialog
+          agendamentoId={agendamentoIdPr}
+          onClose={() => setDialogExamesAberto(false)}
+        />
+      ) : null}
     </div>
   );
 }

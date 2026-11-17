@@ -96,6 +96,7 @@ export function WhatsAppPage() {
         hora_fixa_mensagem: cfg.hora_fixa_ativa
           ? (cfg.hora_fixa_mensagem?.trim() || "08:00")
           : null,
+        hora_fixa_tarde: cfg.hora_fixa_ativa ? cfg.hora_fixa_tarde?.trim() || null : null,
       });
       void msg.success("Configuração salva.");
       await carregar();
@@ -193,12 +194,13 @@ export function WhatsAppPage() {
           <p className="cfg-muted p-4">Carregando…</p>
         ) : (
           <>
-            <section className="cfg-card">
+            {/* shrink-0 + overflow visível: o QR nunca pode ser cortado (senão não lê). */}
+            <section className="cfg-card shrink-0" style={{ overflow: "visible" }}>
               <div className="cfg-card__head cfg-card__head--compact">
                 <MessageCircle className="cfg-card__icon" />
                 <h3 className="cfg-card__title">Conexão</h3>
               </div>
-              <div className="cfg-card__body">
+              <div className="cfg-card__body" style={{ overflow: "visible" }}>
                 <p className="text-sm mb-3">
                   Status:{" "}
                   <strong>{STATUS_LABEL[status] ?? status}</strong>
@@ -356,15 +358,14 @@ export function WhatsAppPage() {
                       }
                     />
                     <span>
-                      <strong>Horário fixo na mensagem</strong> — um único horário
-                      para todos os médicos. Se a agenda marca 08:00 de manhã e
-                      14:00 à tarde, deixe desmarcado para o Zap usar a hora de
-                      cada agendamento.
+                      <strong>Horário fixo na mensagem</strong> — em vez da hora de
+                      cada agendamento, o paciente recebe o horário de chegada da
+                      jornada: um para a manhã e outro para a tarde.
                     </span>
                   </label>
                   {cfg.hora_fixa_ativa ? (
                     <label className="block text-sm pl-6">
-                      <span className="font-medium">Horário informado ao paciente</span>
+                      <span className="font-medium">Manhã (agendamentos antes das 12:00)</span>
                       <input
                         type="time"
                         className="legacy-input mt-1"
@@ -377,9 +378,18 @@ export function WhatsAppPage() {
                           )
                         }
                       />
+                      <span className="font-medium block mt-3">Tarde (agendamentos a partir das 12:00)</span>
+                      <input
+                        type="time"
+                        className="legacy-input mt-1"
+                        value={cfg.hora_fixa_tarde?.trim() || ""}
+                        onChange={(e) =>
+                          setCfg((c) => (c ? { ...c, hora_fixa_tarde: e.target.value || null } : c))
+                        }
+                      />
                       <p className="mt-1 text-xs text-[var(--muted)] mb-0">
-                        O placeholder {"{hora}"} usará este valor em todos os envios.
-                        Desmarcado: usa o horário de cada agendamento.
+                        O {"{hora}"} da mensagem usa o horário da jornada do agendamento.
+                        Tarde em branco: usa o da manhã para todos.
                       </p>
                     </label>
                   ) : (

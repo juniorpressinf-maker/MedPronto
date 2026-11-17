@@ -8,7 +8,7 @@ import { LOGIN_NAO_EMAIL_MSG, loginPareceEmail } from "../lib/login";
 import { useMessageBox } from "../lib/messageBoxContext";
 
 export function SetupPage() {
-  const { refresh, setupNeeded, loading: authLoading } = useAuth();
+  const { refresh, setup, setupNeeded, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const msg = useMessageBox();
   const [username, setUsername] = useState("admin");
@@ -37,15 +37,10 @@ export function SetupPage() {
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/setup", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, senha }),
-      });
-      const data = (await res.json()) as { error?: string };
-      if (!res.ok) throw new ApiError(data.error ?? "Erro", res.status);
-      await refresh();
+      const loginCriado = await setup(username, senha);
+      await msg.info(
+        `Administrador criado.\n\nUsuário: ${loginCriado}\n\nGuarde este usuário e a senha — serão pedidos nos próximos acessos.`,
+      );
       let destino = "/clinica/setup";
       try {
         const licRes = await fetch("/api/licenca", { credentials: "include" });
@@ -59,6 +54,7 @@ export function SetupPage() {
       } catch {
         /* segue para clinica */
       }
+      await refresh();
       navigate(destino, { replace: true });
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {

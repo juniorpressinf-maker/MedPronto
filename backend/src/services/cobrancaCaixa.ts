@@ -16,6 +16,8 @@ export type CaixaContaResumo = {
   total_liquido_centavos: number;
   total_pago_centavos: number;
   saldo_pendente_centavos: number;
+  /** Formas usadas nesta conta, com o total de cada uma. */
+  formas: { forma: string; valor_centavos: number }[];
 };
 
 export type CaixaDoDia = {
@@ -71,6 +73,13 @@ export function obterCaixaDoDia(
       total_liquido_centavos: det.total_liquido_centavos,
       total_pago_centavos: det.total_pago_centavos,
       saldo_pendente_centavos: det.saldo_pendente_centavos,
+      // Formas iguais somadas (crédito + crédito = "Crédito R$ total").
+      formas: Object.entries(
+        det.pagamentos.reduce<Record<string, number>>((acc, p) => {
+          acc[p.forma] = (acc[p.forma] ?? 0) + p.valor_centavos;
+          return acc;
+        }, {}),
+      ).map(([forma, valor_centavos]) => ({ forma, valor_centavos })),
     });
 
     if (det.status === "em_aberto") {

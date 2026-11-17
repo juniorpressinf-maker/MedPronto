@@ -10,6 +10,8 @@ import { mkdirSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import { config } from "../config.js";
+import { hojeIsoLocal } from "../lib/diasUteis.js";
+import { registrarRespostaPaciente } from "../services/whatsappRespostas.js";
 
 const AUTH_DIR = path.join(config.dataDir, "auth");
 mkdirSync(AUTH_DIR, { recursive: true });
@@ -223,6 +225,36 @@ export async function startClient(): Promise<ReturnType<typeof makeWASocket> | n
 
     sock.ev.on("creds.update", saveCreds);
 
+    // Respostas dos pacientes (ex.: "SIM" à confirmação).
+    sock.ev.on("messages.upsert", async ({ messages, type }) => {
+      if (type !== "notify") return;
+      for (const m of messages) {
+        try {
+          if (m.key.fromMe) continue;
+          // WhatsApp novo identifica o remetente por LID (@lid); traduz para o número.
+          const jid = await numeroDoRemetente(sock, m.key.remoteJid, m.key.remoteJidAlt);
+          if (!jid) {
+            if (m.key.remoteJid?.endsWith("@lid")) console.log(`[whatsapp] resposta sem número (LID ${m.key.remoteJid})`);
+            continue; // grupos, status, LID desconhecido
+          }
+          const msg = m.message;
+          const texto =
+            msg?.conversation ??
+            msg?.extendedTextMessage?.text ??
+            msg?.buttonsResponseMessage?.selectedDisplayText ??
+            msg?.reactionMessage?.text ??
+            "";
+          if (!texto.trim()) continue;
+          const r = registrarRespostaPaciente(jid, texto, hojeIsoLocal());
+          if (r.tipo !== "sem_agendamento") {
+            console.log(`[whatsapp] resposta (${r.tipo}) agendamento ${r.agendamento_id}`);
+          }
+        } catch (e) {
+          console.error("[whatsapp] erro ao tratar resposta:", e);
+        }
+      }
+    });
+
     sock.ev.on("connection.update", async (update) => {
       const { connection, lastDisconnect, qr } = update;
 
@@ -284,6 +316,27 @@ export async function startClient(): Promise<ReturnType<typeof makeWASocket> | n
   } finally {
     starting = false;
   }
+}
+
+/** Número (só dígitos) de quem mandou a mensagem; resolve LID pelo mapa do Baileys. */
+async function numeroDoRemetente(
+  sock: ReturnType<typeof makeWASocket>,
+  remoteJid: string | null | undefined,
+  remoteJidAlt: string | null | undefined,
+): Promise<string | null> {
+  for (const j of [remoteJid, remoteJidAlt]) {
+    if (j?.endsWith("@s.whatsapp.net")) return j.split(/[:@]/)[0];
+  }
+  for (const j of [remoteJid, remoteJidAlt]) {
+    if (!j?.endsWith("@lid")) continue;
+    try {
+      const pn = await sock.signalRepository.lidMapping.getPNForLID(j);
+      if (pn) return pn.split(/[:@]/)[0];
+    } catch {
+      /* sem mapeamento */
+    }
+  }
+  return null;
 }
 
 export function jidFromE164(e164: string): string {

@@ -108,6 +108,9 @@ export function campoTemConteudo(
     }
     case "retorno":
       return typeof valor === "number" && Number.isFinite(valor);
+    case "texto_formatado":
+      // HTML do editor: "<p></p>" não conta como conteúdo
+      return typeof valor === "string" && Boolean(valor.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim());
     default:
       return typeof valor === "string"
         ? Boolean(valor.trim())

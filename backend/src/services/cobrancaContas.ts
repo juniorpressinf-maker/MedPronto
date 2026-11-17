@@ -1,5 +1,6 @@
 import type { Database } from "better-sqlite3";
 import { getDb } from "../db/index.js";
+import { agoraLocalSql } from "../lib/diasUteis.js";
 import { ASO_TITULO_CURTO } from "../admissional/labels.js";
 import { CONVENIO_PARTICULAR_ID } from "./cobrancaCadastros.js";
 import { nomeExameParaExibicao } from "../utils/examesStorage.js";
@@ -108,6 +109,8 @@ export type ContaRow = {
   paciente_nome?: string;
   convenio_nome?: string;
   agendamento_hora?: string | null;
+  /** Situação do atendimento (aviso ao receber antes de finalizar). */
+  agendamento_status?: string | null;
   procedimentos_nomes?: string | null;
 };
 
@@ -534,7 +537,7 @@ export function obterContaDetalhe(
   const conta = db
     .prepare(
       `SELECT c.*, p.nome AS paciente_nome, cv.nome AS convenio_nome,
-              ag.hora AS agendamento_hora,
+              ag.hora AS agendamento_hora, ag.status AS agendamento_status,
               ${SQL_CONTA_PROCEDIMENTOS_NOMES} AS procedimentos_nomes
        FROM contas_atendimento c
        JOIN pacientes p ON p.id = c.paciente_id
@@ -861,6 +864,8 @@ export function adicionarItemConta(
 
   if (dados.admissional_id) {
     assertAdmissionalDaConta(contaId, dados.admissional_id, db);
+    // B2 [7]: o mesmo ASO não pode ser cobrado em dois itens (nem em duas contas).
+    assertAdmissionalDisponivelItem(0, dados.admissional_id, db);
   }
 
   if (
@@ -877,7 +882,7 @@ export function adicionarItemConta(
   const valor = obterPrecoProcedimento(dados.procedimento_id, convenioId, db);
   const qtd = dados.quantidade && dados.quantidade > 0 ? dados.quantidade : 1;
   const status = dados.status ?? "solicitado";
-  const agora = new Date().toISOString().slice(0, 19).replace("T", " ");
+  const agora = agoraLocalSql();
 
   let apId: number | null = null;
   if (conta.agendamento_id) {
@@ -953,7 +958,7 @@ export function atualizarItemConta(
   if (!item) throw new Error("Item não encontrado");
 
   if (dados.status) {
-    const agora = new Date().toISOString().slice(0, 19).replace("T", " ");
+    const agora = agoraLocalSql();
     const realizadoEm =
       dados.status === "realizado" ? agora : item.realizado_em;
     db.prepare(

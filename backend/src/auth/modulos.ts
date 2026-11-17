@@ -4,6 +4,7 @@ import { getDb } from "../db/index.js";
 
 export const MODULOS = [
   "agenda",
+  "agenda_config",
   "pacientes",
   "fila_recepcao",
   "exames_anexos",
@@ -26,12 +27,14 @@ export const MODULOS = [
   "cobranca_solicitar",
   "cobranca_config",
   "cobranca_relatorios",
+  "chat_interno",
 ] as const;
 
 export type Modulo = (typeof MODULOS)[number];
 
 export const MODULO_LABELS: Record<Modulo, string> = {
   agenda: "Agenda",
+  agenda_config: "Agenda (configuração: tipos, horários, cores)",
   pacientes: "Pacientes",
   fila_recepcao: "Check-in / fila recepção",
   exames_anexos: "Exames anexos",
@@ -46,19 +49,21 @@ export const MODULO_LABELS: Record<Modulo, string> = {
   licenca: "Licença",
   whatsapp: "WhatsApp",
   remoto: "Acesso remoto",
-  fichas_config: "Fichas clínicas (configuração)",
-  fichas_medico: "Fichas clínicas (minhas)",
+  fichas_config: "Fichas clínicas e Medicamentos/Exames (configuração)",
+  fichas_medico: "Fichas clínicas (minhas) e Medicamentos/Exames",
   admissional: `${ASO_TITULO} (formulário)`,
   admissional_agenda: `${ASO_TITULO} (agenda / check-in)`,
   cobranca: "Cobrança (caixa / contas)",
   cobranca_solicitar: "Cobrança (solicitar procedimento)",
   cobranca_config: "Cobrança (configuração)",
   cobranca_relatorios: "Cobrança (relatórios)",
+  chat_interno: "Chat interno",
 };
 
 export const PERMISSOES_PADRAO: Record<Perfil, Modulo[]> = {
   secretaria: [
     "agenda",
+    "agenda_config",
     "pacientes",
     "fila_recepcao",
     "exames_anexos",
@@ -68,6 +73,7 @@ export const PERMISSOES_PADRAO: Record<Perfil, Modulo[]> = {
     "cobranca",
     "cobranca_relatorios",
     "cobranca_config",
+    "chat_interno",
   ],
   medico: [
     "fila_medico",
@@ -80,6 +86,7 @@ export const PERMISSOES_PADRAO: Record<Perfil, Modulo[]> = {
     "pacientes",
     "fichas_medico",
     "cobranca_solicitar",
+    "chat_interno",
   ],
   admin: [...MODULOS],
 };
@@ -99,44 +106,54 @@ export function getPermissoesUsuario(
     )
     .all(usuarioId) as { modulo: string }[];
 
-  if (rows.length > 0) {
-    return rows.map((r) => r.modulo).filter(isModuloValido);
-  }
-  return [...PERMISSOES_PADRAO[perfil]];
-}
+  const custom = rows
+    .map((r) => r.modulo)
+    .filter((m): m is Modulo => isModuloValido(m));
 
-export function setPermissoesUsuario(
-  usuarioId: number,
-  modulos: string[],
-): void {
-  const db = getDb();
-  const valid = modulos.filter(isModuloValido);
-  const tx = db.transaction(() => {
-    db.prepare("DELETE FROM usuario_permissoes WHERE usuario_id = ?").run(
-      usuarioId,
-    );
-    const ins = db.prepare(
-      `INSERT INTO usuario_permissoes (usuario_id, modulo, permitido)
-       VALUES (?, ?, 1)`,
-    );
-    for (const m of valid) {
-      ins.run(usuarioId, m);
-    }
-  });
-  tx();
-}
+  const defaults = PERMISSOES_PADRAO[perfil] ?? [];
 
-export function aplicarPermissoesPadrao(
-  usuarioId: number,
-  perfil: Perfil,
-): void {
-  setPermissoesUsuario(usuarioId, PERMISSOES_PADRAO[perfil]);
+  // Une permissões padrão do perfil + permissões customizadas
+  const todas = new Set([...defaults, ...custom]);
+  return Array.from(todas);
 }
 
 export function usuarioTemModulo(
   usuarioId: number,
   perfil: Perfil,
-  modulo: Modulo,
+  modulo: Modulo | Modulo[],
 ): boolean {
-  return getPermissoesUsuario(usuarioId, perfil).includes(modulo);
+  const mods = Array.isArray(modulo) ? modulo : [modulo];
+  const permissoes = getPermissoesUsuario(usuarioId, perfil);
+  return mods.some((m) => permissoes.includes(m));
+}
+
+export function aplicarPermissoesPadrao(usuarioId: number, perfil: Perfil): void {
+  const mods = PERMISSOES_PADRAO[perfil] ?? [];
+  const stmt = getDb().prepare(
+    `INSERT INTO usuario_permissoes (usuario_id, modulo, permitido)
+     VALUES (?, ?, 1)
+     ON CONFLICT(usuario_id, modulo) DO UPDATE SET permitido = 1`,
+  );
+  for (const m of mods) {
+    stmt.run(usuarioId, m);
+  }
+}
+
+export function setPermissoesUsuario(
+  usuarioId: number,
+  permissoes: string[],
+): void {
+  const db = getDb();
+  // Remove todas as permissões atuais
+  db.prepare("DELETE FROM usuario_permissoes WHERE usuario_id = ?").run(usuarioId);
+
+  // Insere as novas
+  const stmt = db.prepare(
+    `INSERT INTO usuario_permissoes (usuario_id, modulo, permitido) VALUES (?, ?, 1)`,
+  );
+  for (const m of permissoes) {
+    if (isModuloValido(m)) {
+      stmt.run(usuarioId, m);
+    }
+  }
 }

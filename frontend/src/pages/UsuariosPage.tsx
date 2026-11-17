@@ -10,7 +10,7 @@ import {
 } from "../lib/api";
 import { permissoesPadraoDoPerfil } from "../lib/permissoesDefaults";
 import { LOGIN_NAO_EMAIL_MSG, loginPareceEmail } from "../lib/login";
-import { isFormDirty, snapshotForm } from "../lib/formDirty";
+import { snapshotForm } from "../lib/formDirty";
 import { useFocusFirstField } from "../lib/useFocusFirstField";
 import { useMessageBox } from "../lib/messageBoxContext";
 import { SortableTh, useTableSort } from "../lib/useTableSort";
@@ -140,7 +140,7 @@ export function UsuariosPage() {
   useFocusFirstField([mode, loading], { enabled: !loading });
 
   const formDirty = useMemo(
-    () => mode === "form" && isFormDirty(snapshotUsuarioForm(form), baseline),
+    () => mode === "form" && snapshotUsuarioForm(form) !== baseline,
     [mode, form, baseline],
   );
 

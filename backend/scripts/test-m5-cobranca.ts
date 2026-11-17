@@ -1,3 +1,5 @@
+import "./lib/exigirCopia.js"; // trava: nunca no banco real (rodar via npm run test:*)
+import { limparResiduos2099 } from "./lib/limparResiduos2099.js";
 /**
  * Aceite M5 — pagamentos, desconto e fechamento de conta.
  */
@@ -13,7 +15,8 @@ import {
 } from "../src/services/cobrancaPagamentos.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.resolve(__dirname, "../../data/medpronto.db");
+// A7: DATABASE_PATH permite rodar numa cópia (scripts/test-a7-regressao.mjs); sem ele, banco real como antes.
+const dbPath = process.env.DATABASE_PATH || path.resolve(__dirname, "../../data/medpronto.db");
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(`FALHOU: ${msg}`);
@@ -22,6 +25,7 @@ function assert(cond: boolean, msg: string): void {
 function main(): void {
   runMigrations();
   const db = new Database(dbPath);
+  limparResiduos2099(db); // resíduos de execuções antigas (ano 2099)
   db.pragma("foreign_keys = ON");
 
   const paciente = db
@@ -163,7 +167,7 @@ function main(): void {
   assert(isenta.status === "isento", "isenção");
   assert(isenta.total_pago_centavos === 0, "isenção sem pagamento");
 
-  const dataVazia = "2099-03-03";
+  const dataVazia = "2099-03-04"; // não reaproveitar o dia da conta isenta (fechada)
   db.prepare(`DELETE FROM conta_itens WHERE conta_id IN (
     SELECT id FROM contas_atendimento WHERE data = ?
   )`).run(dataVazia);

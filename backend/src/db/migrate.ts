@@ -68,7 +68,9 @@ export function runMigrations(): string[] {
 
   const files = fs
     .readdirSync(migrationsDir)
-    .filter((f) => f.endsWith(".sql"))
+    // So migracoes numeradas (NNN_nome.sql). Scripts avulsos na pasta
+    // (ex.: limpar_*.sql) nunca devem rodar sozinhos no cliente.
+    .filter((f) => /^\d{3}_.+\.sql$/i.test(f))
     .sort();
 
   const done = appliedMigrations(db);
@@ -80,8 +82,11 @@ export function runMigrations(): string[] {
       db,
       fs.readFileSync(path.join(migrationsDir, file), "utf8"),
     );
-    db.exec(sql);
-    db.prepare("INSERT INTO schema_migrations (name) VALUES (?)").run(file);
+    // Tudo ou nada: falha nao deixa migracao aplicada pela metade.
+    db.transaction(() => {
+      db.exec(sql);
+      db.prepare("INSERT INTO schema_migrations (name) VALUES (?)").run(file);
+    })();
     applied.push(file);
   }
 

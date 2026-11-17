@@ -9,7 +9,7 @@ import {
   takeCadastroReturn,
 } from "../lib/cadastroReturn";
 import { useMessageBox } from "../lib/messageBoxContext";
-import { isFormDirty, snapshotForm } from "../lib/formDirty";
+import { snapshotForm } from "../lib/formDirty";
 import { validarCpfOpcional } from "../lib/cpf";
 import { validarEmailOpcional, validarTelefoneOpcional } from "../lib/validacoes";
 import { focusFirstField } from "../lib/focusFirstField";
@@ -74,6 +74,16 @@ type Props = {
   listRefreshTick?: number;
   /** Conteúdo extra no formulário de edição (ex.: histórico admissional) */
   formExtra?: (ctx: { editId: number; form: Record<string, string> }) => ReactNode;
+  /**
+   * Alteração com abas no topo: a 1ª é o formulário (`rotuloAbaPrincipal`), as demais
+   * ocupam a área central inteira (ex.: históricos do paciente).
+   */
+  abasExtras?: (ctx: { editId: number; form: Record<string, string> }) => {
+    id: string;
+    label: string;
+    conteudo: ReactNode;
+  }[];
+  rotuloAbaPrincipal?: string;
   /** `full` — card ocupa toda a área (edição com painéis extras); `fit` — card estreito; `wide` — card largo, formulário em mais colunas */
   formCardLayout?: "fit" | "full" | "wide";
   /** Colunas do grid do formulário (padrão 2) */
@@ -113,6 +123,8 @@ export function CadastroSimples({
   onAnexarExame,
   listRefreshTick = 0,
   formExtra,
+  abasExtras,
+  rotuloAbaPrincipal = "Dados",
   formCardLayout = "fit",
   formGridCols = 2,
 }: Props) {
@@ -143,6 +155,10 @@ export function CadastroSimples({
   const [editId, setEditId] = useState<number | null>(
     () => savedRef.current?.editId ?? null,
   );
+  const [abaCadastro, setAbaCadastro] = useState<string>("__dados");
+  useEffect(() => {
+    setAbaCadastro("__dados");
+  }, [editId]);
   const [form, setForm] = useState<Record<string, string>>(
     () => savedRef.current?.form ?? emptyForm(fields),
   );
@@ -168,7 +184,7 @@ export function CadastroSimples({
     snapshotForm({ form: f, ativo: a });
 
   const formDirty = useMemo(
-    () => mode === "form" && isFormDirty(snapshotCadastro(form, ativo), baseline),
+    () => mode === "form" && snapshotCadastro(form, ativo) !== baseline,
     [mode, form, ativo, baseline],
   );
 
@@ -429,7 +445,10 @@ export function CadastroSimples({
   const formTitle = editId ? `Alteracao — ${title}` : `Inclusao — ${title}`;
   const formFullCard = formCardLayout === "full";
   const formWideCard = formCardLayout === "wide";
-  const formComExtra = Boolean(editId && formExtra);
+  const listaAbas = editId && abasExtras ? abasExtras({ editId, form }) : [];
+  const comAbas = listaAbas.length > 0;
+  const abaExtra = comAbas ? (listaAbas.find((a) => a.id === abaCadastro) ?? null) : null;
+  const formComExtra = Boolean(editId && (formExtra || comAbas));
   /** Wide + histórico: precisa do layout com scroll (igual full), senão o extra some cortado. */
   const formComScrollExtra = formFullCard || (formWideCard && formComExtra);
   const gridColsClass =
@@ -756,6 +775,24 @@ export function CadastroSimples({
               onSubmit={(e) => void save(e)}
               className="cadastro-form cadastro-form--full flex flex-col flex-1 min-h-0 overflow-hidden w-full"
             >
+              {comAbas ? (
+                <nav className="cc-abas cadastro-form__abas shrink-0" aria-label="Seções do cadastro">
+                  {[{ id: "__dados", label: rotuloAbaPrincipal }, ...listaAbas].map((a) => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      className={`cc-aba${(abaExtra?.id ?? "__dados") === a.id ? " cc-aba--ativa" : ""}`}
+                      aria-pressed={(abaExtra?.id ?? "__dados") === a.id}
+                      onClick={() => setAbaCadastro(a.id)}
+                    >
+                      {a.label}
+                    </button>
+                  ))}
+                </nav>
+              ) : null}
+              {abaExtra ? (
+                <div className="est-card--page__area scroll-interno flex-1 min-h-0 p-4">{abaExtra.conteudo}</div>
+              ) : (
               <div
                 className={
                   formComExtra
@@ -763,17 +800,18 @@ export function CadastroSimples({
                     : "est-card--page__area scroll-interno flex-1 min-h-0 p-4 space-y-4"
                 }
               >
-                {formComExtra ? (
+                {formComExtra && formExtra ? (
                   <>
                     <div className="cadastro-form__campos space-y-4">{camposFormulario}</div>
                     <div className="cadastro-form__extra">
-                      {formExtra!({ editId: editId!, form })}
+                      {formExtra({ editId: editId!, form })}
                     </div>
                   </>
                 ) : (
                   camposFormulario
                 )}
               </div>
+              )}
               <footer className="cadastro-form__rodape shrink-0">{acoesFormulario}</footer>
             </form>
           ) : (
@@ -782,7 +820,7 @@ export function CadastroSimples({
               className="space-y-4 w-full"
             >
               {camposFormulario}
-              {formComExtra ? formExtra!({ editId: editId!, form }) : null}
+              {formComExtra && formExtra ? formExtra({ editId: editId!, form }) : null}
               {acoesFormulario}
             </form>
           )}

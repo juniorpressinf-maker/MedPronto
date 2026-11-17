@@ -33,6 +33,8 @@ import {
 } from "../services/cobrancaContas.js";
 import {
   aplicarDesconto,
+  cancelarConta,
+  estornarPagamento,
   fecharConta,
   reabrirConta,
   receberConta,
@@ -205,6 +207,8 @@ const procedimentoBody = z.object({
   nome: z.string().min(1).max(200),
   orientacoes_paciente: z.string().max(1000).optional(),
   modo_clinico: z.enum(["prontuario", "aso", "nenhum"]),
+  duracao_minutos: z.number().int().min(5).max(480).nullable().optional(),
+  cor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Cor no formato #RRGGBB").optional(),
 });
 
 const procedimentoUpdateBody = z.object({
@@ -213,6 +217,8 @@ const procedimentoUpdateBody = z.object({
   ativo: z.union([z.literal(0), z.literal(1)]).optional(),
   orientacoes_paciente: z.string().max(1000).nullable().optional(),
   modo_clinico: z.enum(["prontuario", "aso", "nenhum"]).optional(),
+  duracao_minutos: z.number().int().min(5).max(480).nullable().optional(),
+  cor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Cor no formato #RRGGBB").optional(),
 });
 
 cobrancaRouter.get(
@@ -352,6 +358,15 @@ const receberContaBody = z.object({
   valor_desconto_centavos: z.number().int().min(0).default(0),
   motivo_desconto: z.string().max(500).nullable().optional(),
   forma: z.enum(["pix", "credito", "debito", "dinheiro", "transferencia"]).optional(),
+  pagamentos: z
+    .array(
+      z.object({
+        forma: z.enum(["pix", "credito", "debito", "dinheiro", "transferencia"]),
+        valor_centavos: z.number().int().positive(),
+      }),
+    )
+    .max(10)
+    .optional(),
 });
 
 const receberConvenioBody = z.object({
@@ -691,6 +706,7 @@ cobrancaRouter.post(
             valor_desconto_centavos: body.valor_desconto_centavos,
             motivo_desconto: body.motivo_desconto ?? null,
             forma: body.forma,
+            pagamentos: body.pagamentos,
           },
           req.usuario!.id,
         ),
@@ -783,6 +799,48 @@ cobrancaRouter.post(
     } catch (e) {
       res.status(400).json({
         error: e instanceof Error ? e.message : "Erro ao reabrir conta",
+      });
+    }
+  }),
+);
+
+const motivoBody = z.object({ motivo: z.string().min(3).max(500) });
+
+// B2 [8] — estorno de pagamento do dia (admin; conta reaberta).
+cobrancaRouter.post(
+  "/contas/:id/pagamentos/:pagamentoId/estornar",
+  requireModulo("cobranca"),
+  requireAdmin(),
+  asyncHandler(async (req, res) => {
+    const body = motivoBody.parse(req.body);
+    try {
+      res.json(
+        estornarPagamento(
+          Number(req.params.id),
+          Number(req.params.pagamentoId),
+          body.motivo,
+          req.usuario!.id,
+        ),
+      );
+    } catch (e) {
+      res.status(400).json({
+        error: e instanceof Error ? e.message : "Erro ao estornar pagamento",
+      });
+    }
+  }),
+);
+
+// B2 [5] — cancelar conta em aberto sem pagamento (avulsa, ou de horário cancelado).
+cobrancaRouter.post(
+  "/contas/:id/cancelar",
+  requireModulo("cobranca"),
+  asyncHandler(async (req, res) => {
+    const body = motivoBody.parse(req.body);
+    try {
+      res.json(cancelarConta(Number(req.params.id), body.motivo, req.usuario!.id));
+    } catch (e) {
+      res.status(400).json({
+        error: e instanceof Error ? e.message : "Erro ao cancelar conta",
       });
     }
   }),

@@ -2,6 +2,7 @@
  * Aceite U12 — dois horários no mesmo dia = duas linhas no caixa;
  * totais somam as duas; dashboard conta contas, não pacientes.
  */
+import "./lib/exigirCopia.js"; // trava: nunca no banco real (rodar via npm run test:*)
 import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -14,7 +15,8 @@ import { montarDashboard } from "../src/services/dashboardService.js";
 import { obterRelatorioCobranca } from "../src/services/cobrancaRelatorios.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.resolve(__dirname, "../../data/medpronto.db");
+// A7: DATABASE_PATH permite rodar numa cópia (scripts/test-a7-regressao.mjs); sem ele, banco real como antes.
+const dbPath = process.env.DATABASE_PATH || path.resolve(__dirname, "../../data/medpronto.db");
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(`FALHOU: ${msg}`);

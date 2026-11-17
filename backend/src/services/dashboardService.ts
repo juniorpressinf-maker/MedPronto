@@ -31,8 +31,22 @@ export type DashboardProcedimentoRow = {
   faturado_centavos: number;
 };
 
+export type DashboardKpisPeriodo = {
+  finalizados: number;
+  taxa_comparecimento: number | null;
+  pacientes_novos: number;
+  arrecadado_centavos: number | null;
+  faturado_centavos: number | null;
+  contas_validas: number | null;
+  ticket_medio_centavos: number | null;
+};
+
 export type DashboardPayload = {
   periodo: DashboardPeriodo;
+  comparativo: {
+    periodo_anterior: DashboardPeriodo;
+    anterior: DashboardKpisPeriodo;
+  };
   cobranca_disponivel: boolean;
   clinico: {
     totais: {
@@ -59,6 +73,8 @@ export type DashboardPayload = {
   };
   financeiro: {
     arrecadado_centavos: number;
+    faturado_centavos: number;
+    ticket_medio_centavos: number | null;
     contas_fechadas: number;
     contas_abertas: number;
     a_faturar_centavos: number;
@@ -126,6 +142,95 @@ function contagemPorStatus(
   return out;
 }
 
+/** Período imediatamente anterior, com a mesma quantidade de dias. */
+export function periodoAnterior(de: string, ate: string): DashboardPeriodo {
+  const iso = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const ini = new Date(`${de}T12:00:00`);
+  const fim = new Date(`${ate}T12:00:00`);
+  const dias = Math.round((fim.getTime() - ini.getTime()) / 86400000);
+  const novoAte = new Date(ini);
+  novoAte.setDate(novoAte.getDate() - 1);
+  const novoDe = new Date(novoAte);
+  novoDe.setDate(novoDe.getDate() - dias);
+  return { de: iso(novoDe), ate: iso(novoAte) };
+}
+
+function contarPacientesNovos(db: Database, de: string, ate: string): number {
+  return (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS qtd FROM pacientes
+         WHERE date(created_at) >= date(?) AND date(created_at) <= date(?)`,
+      )
+      .get(de, ate) as { qtd: number }
+  ).qtd;
+}
+
+function somarArrecadado(db: Database, de: string, ate: string): number {
+  return (
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(p.valor_centavos), 0) AS total
+         FROM conta_pagamentos p
+         WHERE date(p.registrado_em) >= date(?) AND date(p.registrado_em) <= date(?)`,
+      )
+      .get(de, ate) as { total: number }
+  ).total;
+}
+
+/** Produção do período: soma dos itens das contas não canceladas (menos desconto). */
+function somarFaturado(
+  db: Database,
+  de: string,
+  ate: string,
+): { faturado: number; contas: number } {
+  const r = db
+    .prepare(
+      `SELECT COALESCE(SUM(tl), 0) AS faturado, COUNT(*) AS contas FROM (
+         SELECT MAX(0,
+           COALESCE((
+             SELECT SUM(ci.valor_centavos * ci.quantidade)
+             FROM conta_itens ci
+             WHERE ci.conta_id = c.id AND ci.status != 'cancelado'
+           ), 0) - COALESCE(c.valor_desconto_centavos, 0)
+         ) AS tl
+         FROM contas_atendimento c
+         WHERE c.data >= ? AND c.data <= ?
+           AND c.status != 'cancelada'
+       )`,
+    )
+    .get(de, ate) as { faturado: number; contas: number };
+  return r;
+}
+
+function taxaComparecimentoDe(status: Record<string, number>): number | null {
+  const fin = status.finalizado ?? 0;
+  const den = fin + (status.nao_compareceu ?? 0);
+  return den > 0 ? Math.round((fin / den) * 1000) / 10 : null;
+}
+
+export function kpisPeriodo(
+  db: Database,
+  de: string,
+  ate: string,
+  medicoId?: number,
+): DashboardKpisPeriodo {
+  const status = contagemPorStatus(db, de, ate, medicoId);
+  const cobranca = tabelaExiste(db, "contas_atendimento");
+  const fat = cobranca ? somarFaturado(db, de, ate) : null;
+  return {
+    finalizados: status.finalizado ?? 0,
+    taxa_comparecimento: taxaComparecimentoDe(status),
+    pacientes_novos: contarPacientesNovos(db, de, ate),
+    arrecadado_centavos: cobranca ? somarArrecadado(db, de, ate) : null,
+    faturado_centavos: fat ? fat.faturado : null,
+    contas_validas: fat ? fat.contas : null,
+    ticket_medio_centavos:
+      fat && fat.contas > 0 ? Math.round(fat.faturado / fat.contas) : null,
+  };
+}
+
 export function montarDashboard(
   de: string,
   ate: string,
@@ -143,18 +248,12 @@ export function montarDashboard(
   const agendamentos = Object.values(status).reduce((s, n) => s + n, 0);
   const finalizados = status.finalizado ?? 0;
   const naoCompareceu = status.nao_compareceu ?? 0;
-  const denominador = finalizados + naoCompareceu;
-  const taxaComparecimento =
-    denominador > 0 ? Math.round((finalizados / denominador) * 1000) / 10 : null;
+  const taxaComparecimento = taxaComparecimentoDe(status);
 
-  const pacientesNovos = (
-    db
-      .prepare(
-        `SELECT COUNT(*) AS qtd FROM pacientes
-         WHERE date(created_at) >= date(?) AND date(created_at) <= date(?)`,
-      )
-      .get(de, ate) as { qtd: number }
-  ).qtd;
+  const pacientesNovos = contarPacientesNovos(db, de, ate);
+
+  const periodoAnt = periodoAnterior(de, ate);
+  const kpisAnterior = kpisPeriodo(db, periodoAnt.de, periodoAnt.ate, medicoId);
 
   let admissionais = 0;
   if (tabelaExiste(db, "admissionais")) {
@@ -252,15 +351,8 @@ export function montarDashboard(
         .get(de, ate) as { qtd: number }
     ).qtd;
 
-    const arrecadado = (
-      db
-        .prepare(
-          `SELECT COALESCE(SUM(p.valor_centavos), 0) AS total
-           FROM conta_pagamentos p
-           WHERE date(p.registrado_em) >= date(?) AND date(p.registrado_em) <= date(?)`,
-        )
-        .get(de, ate) as { total: number }
-    ).total;
+    const arrecadado = somarArrecadado(db, de, ate);
+    const fat = somarFaturado(db, de, ate);
 
     const aFaturar = (
       db
@@ -423,6 +515,8 @@ export function montarDashboard(
 
     financeiro = {
       arrecadado_centavos: arrecadado,
+      faturado_centavos: fat.faturado,
+      ticket_medio_centavos: fat.contas > 0 ? Math.round(fat.faturado / fat.contas) : null,
       contas_fechadas: contasFechadas,
       contas_abertas: contasAbertas,
       a_faturar_centavos: aFaturar,
@@ -434,6 +528,7 @@ export function montarDashboard(
 
   return {
     periodo: { de, ate },
+    comparativo: { periodo_anterior: periodoAnt, anterior: kpisAnterior },
     cobranca_disponivel: cobrancaDisponivel,
     clinico: {
       totais: {

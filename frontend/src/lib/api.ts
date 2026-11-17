@@ -14,7 +14,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+export async function request<T>(path: string, options?: RequestInit): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, {
@@ -75,25 +75,68 @@ function mensagemErroApi(data: unknown, fallback: string): string {
   return fallback;
 }
 
-async function openPdf(path: string): Promise<void> {
-  let res: Response;
+/** Lançado pelo "antes" do openPdf para desistir sem mensagem de erro (ex.: salvar falhou e já avisou). */
+export class PdfCancelado extends Error {}
+
+/**
+ * Abre o PDF numa janela nova. A janela é aberta JÁ no clique: se esperar o servidor primeiro,
+ * o navegador trata como pop-up e bloqueia sem avisar (receita "não abre para impressão").
+ * `antes`: roda depois de abrir a janela e antes de gerar o PDF (ex.: salvar o documento).
+ */
+async function openPdf(path: string, antes?: () => Promise<void>): Promise<void> {
+  const janela = window.open("", "_blank");
   try {
-    res = await fetch(`${API_BASE}${path}`, { credentials: "include" });
-  } catch {
-    throw new ApiError(
-      "A API ainda não respondeu. Aguarde o reinício terminar ou abra o atalho do MedPronto de novo.",
-      0,
+    janela?.document.write(
+      '<title>PDF</title><p style="font-family:sans-serif;padding:24px">Gerando PDF…</p>',
     );
+  } catch {
+    /* janela sem acesso: segue */
   }
-  if (!res.ok) {
-    const data = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new ApiError(data.error ?? res.statusText, res.status);
+  try {
+    if (antes) await antes();
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}${path}`, { credentials: "include" });
+    } catch {
+      throw new ApiError(
+        "A API ainda não respondeu. Aguarde o reinício terminar ou abra o atalho do MedPronto de novo.",
+        0,
+      );
+    }
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new ApiError(data.error ?? res.statusText, res.status);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    if (janela && !janela.closed) {
+      janela.location.href = url;
+    } else {
+      // Pop-up bloqueado mesmo assim: tenta por link (ainda dentro do app).
+      const a = document.createElement("a");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+    window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+  } catch (e) {
+    try {
+      janela?.close();
+    } catch {
+      /* ignore */
+    }
+    throw e;
   }
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  window.open(url, "_blank", "noopener,noreferrer");
-  window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
 }
+
+export type PreferenciaImpressao = {
+  impressao_timbrado: number;
+  timbrado_topo_mm: number;
+  timbrado_rodape_mm: number;
+};
 
 export type ClinicaBranding = {
   nome: string;
@@ -244,8 +287,22 @@ export type DashboardProcedimentoRow = {
   faturado_centavos: number;
 };
 
+export type DashboardKpisPeriodo = {
+  finalizados: number;
+  taxa_comparecimento: number | null;
+  pacientes_novos: number;
+  arrecadado_centavos: number | null;
+  faturado_centavos: number | null;
+  contas_validas: number | null;
+  ticket_medio_centavos: number | null;
+};
+
 export type DashboardResponse = {
   periodo: { de: string; ate: string };
+  comparativo: {
+    periodo_anterior: { de: string; ate: string };
+    anterior: DashboardKpisPeriodo;
+  };
   cobranca_disponivel: boolean;
   clinico: {
     totais: {
@@ -272,6 +329,8 @@ export type DashboardResponse = {
   };
   financeiro: {
     arrecadado_centavos: number;
+    faturado_centavos: number;
+    ticket_medio_centavos: number | null;
     contas_fechadas: number;
     contas_abertas: number;
     a_faturar_centavos: number;
@@ -333,6 +392,8 @@ export const api = {
     nome: string;
     orientacoes_paciente?: string;
     modo_clinico: "prontuario" | "aso" | "nenhum";
+    duracao_minutos?: number | null;
+    cor?: string;
   }) =>
     request<CobrancaProcedimento>("/cobranca/procedimentos", {
       method: "POST",
@@ -347,6 +408,8 @@ export const api = {
       ativo?: 0 | 1;
       orientacoes_paciente?: string | null;
       modo_clinico?: "prontuario" | "aso" | "nenhum";
+      duracao_minutos?: number | null;
+      cor?: string;
     },
   ) =>
     request<CobrancaProcedimento>(`/cobranca/procedimentos/${id}`, {
@@ -468,6 +531,7 @@ export const api = {
       valor_desconto_centavos: number;
       motivo_desconto?: string | null;
       forma?: CobrancaFormaPagamento;
+      pagamentos?: { forma: CobrancaFormaPagamento; valor_centavos: number }[];
     },
   ) =>
     request<CobrancaContaDetalhe>(`/cobranca/contas/${contaId}/receber`, {
@@ -505,6 +569,18 @@ export const api = {
     request<CobrancaContaDetalhe>(`/cobranca/contas/${contaId}/reabrir`, {
       method: "POST",
     }),
+
+  cobrancaContaCancelar: (contaId: number, motivo: string) =>
+    request<CobrancaContaDetalhe>(`/cobranca/contas/${contaId}/cancelar`, {
+      method: "POST",
+      body: JSON.stringify({ motivo }),
+    }),
+
+  cobrancaContaEstornarPagamento: (contaId: number, pagamentoId: number, motivo: string) =>
+    request<CobrancaContaDetalhe>(
+      `/cobranca/contas/${contaId}/pagamentos/${pagamentoId}/estornar`,
+      { method: "POST", body: JSON.stringify({ motivo }) },
+    ),
 
   cobrancaContaItemAdd: (
     contaId: number,
@@ -708,6 +784,7 @@ export const api = {
     hora_envio_automatico?: number;
     hora_fixa_ativa?: boolean;
     hora_fixa_mensagem?: string | null;
+    hora_fixa_tarde?: string | null;
   }) =>
     request<{ ok: boolean }>("/whatsapp/config", {
       method: "PUT",
@@ -1111,6 +1188,8 @@ export const api = {
     eh_encaixe?: boolean;
     convenio_id: number;
     procedimento_ids: number[];
+    /** Confirma retorno sem consulta prévia / prazo vencido (409 codigo 'retorno_confirmar'). */
+    confirmar_retorno?: boolean;
   }) =>
     request<AgendamentoRow>("/agendamentos", {
       method: "POST",
@@ -1135,7 +1214,7 @@ export const api = {
 
   agendamentoProcedimentos: (
     id: number,
-    body: { procedimento_ids: number[]; convenio_id?: number },
+    body: { procedimento_ids: number[]; convenio_id?: number; reabrir_conta?: boolean },
   ) =>
     request<AgendamentoRow>(`/agendamentos/${id}/procedimentos`, {
       method: "PATCH",
@@ -1162,6 +1241,22 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ status }),
     }),
+
+  agendamentosExamesPendentes: () =>
+    request<{ pendentes: ExamePendente[] }>("/agendamentos/exames-pendentes"),
+
+  agendamentoExamesResultado: (id: number) =>
+    request<ExamesResultadoAgendamento>(`/agendamentos/${id}/exames-resultado`),
+
+  agendamentoExameResultadoVincular: (
+    id: number,
+    itemId: number,
+    exame_anexo_id: number | null,
+  ) =>
+    request<ExamesResultadoAgendamento>(
+      `/agendamentos/${id}/exames-resultado/${itemId}`,
+      { method: "PATCH", body: JSON.stringify({ exame_anexo_id }) },
+    ),
 
   agendamentoFicha: (id: number, ficha_template_id: number | null) =>
     request<AgendamentoRow>(`/agendamentos/${id}/ficha`, {
@@ -1218,8 +1313,68 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  receitaPdf: (prontuarioId: number) =>
-    openPdf(`/prontuarios/${prontuarioId}/receita/pdf`),
+  receitaSugestoes: (prontuarioId: number, q: string) =>
+    request<{ itens: SugestaoCatalogo[] }>(
+      `/prontuarios/${prontuarioId}/receita/sugestoes?q=${encodeURIComponent(q)}`,
+    ),
+
+  receitaMemoria: (prontuarioId: number, nome: string) =>
+    request<{ variacoes: VariacaoPrescricao[]; ocultas: string[] }>(
+      `/prontuarios/${prontuarioId}/receita/memoria?nome=${encodeURIComponent(nome)}`,
+    ),
+
+  receitaMemoriaOcultar: (prontuarioId: number, nome: string, assinatura: string) =>
+    request<{ ok: boolean }>(`/prontuarios/${prontuarioId}/receita/memoria/ocultar`, {
+      method: "POST",
+      body: JSON.stringify({ nome, assinatura }),
+    }),
+
+  pedidoExameSugestoes: (prontuarioId: number, q: string) =>
+    request<{ itens: SugestaoCatalogo[] }>(
+      `/prontuarios/${prontuarioId}/pedido-exame/sugestoes?q=${encodeURIComponent(q)}`,
+    ),
+
+  catalogoListar: (tipo: TipoCatalogo, q: string) =>
+    request<{ itens: ItemCatalogo[] }>(`/catalogo/${tipo}?q=${encodeURIComponent(q)}`),
+
+  catalogoSalvar: (tipo: TipoCatalogo, nome: string, ativo = true) =>
+    request<ItemCatalogo>(`/catalogo/${tipo}`, {
+      method: "POST",
+      body: JSON.stringify({ nome, ativo }),
+    }),
+
+  catalogoAtualizar: (tipo: TipoCatalogo, id: number, dados: { nome?: string; ativo?: boolean }) =>
+    request<ItemCatalogo>(`/catalogo/${tipo}/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(dados),
+    }),
+
+  preferenciaImpressao: () => request<PreferenciaImpressao>("/preferencias/impressao"),
+
+  preferenciaImpressaoSalvar: (body: {
+    impressao_timbrado: boolean;
+    timbrado_topo_mm: number;
+    timbrado_rodape_mm: number;
+  }) =>
+    request<PreferenciaImpressao>("/preferencias/impressao", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  medicoImpressao: (medicoId: number) =>
+    request<PreferenciaImpressao>(`/medicos/${medicoId}/impressao`),
+
+  medicoImpressaoSalvar: (
+    medicoId: number,
+    body: { impressao_timbrado: boolean; timbrado_topo_mm: number; timbrado_rodape_mm: number },
+  ) =>
+    request<PreferenciaImpressao>(`/medicos/${medicoId}/impressao`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  receitaPdf: (prontuarioId: number, antes?: () => Promise<void>) =>
+    openPdf(`/prontuarios/${prontuarioId}/receita/pdf`, antes),
 
   atestadoGet: (prontuarioId: number) =>
     request<{ atestado: Atestado | null }>(`/prontuarios/${prontuarioId}/atestado`),
@@ -1230,8 +1385,8 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  atestadoPdf: (prontuarioId: number) =>
-    openPdf(`/prontuarios/${prontuarioId}/atestado/pdf`),
+  atestadoPdf: (prontuarioId: number, antes?: () => Promise<void>) =>
+    openPdf(`/prontuarios/${prontuarioId}/atestado/pdf`, antes),
 
   pedidoExameGet: (prontuarioId: number) =>
     request<{ pedido: PedidoExame | null }>(
@@ -1244,8 +1399,8 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  pedidoExamePdf: (prontuarioId: number) =>
-    openPdf(`/prontuarios/${prontuarioId}/pedido-exame/pdf`),
+  pedidoExamePdf: (prontuarioId: number, antes?: () => Promise<void>) =>
+    openPdf(`/prontuarios/${prontuarioId}/pedido-exame/pdf`, antes),
 
   consultaPdf: (prontuarioId: number) =>
     openPdf(`/prontuarios/${prontuarioId}/consulta/pdf`),
@@ -1551,6 +1706,7 @@ export type WhatsAppConfig = {
   hora_envio_automatico?: number;
   hora_fixa_ativa?: number;
   hora_fixa_mensagem?: string | null;
+  hora_fixa_tarde?: string | null;
 };
 
 export type WhatsAppLogRow = {
@@ -1634,6 +1790,29 @@ export type ReceitaItem = {
   duracao_dias?: number | null;
 };
 
+export type TipoCatalogo = "medicamento" | "exame";
+
+export type SugestaoCatalogo = { nome: string; usos: number };
+
+/** Como o médico já prescreveu o medicamento (memória de prescrição). */
+export type VariacaoPrescricao = {
+  assinatura: string;
+  dosagem: string | null;
+  via: string | null;
+  posologia: string | null;
+  quantidade: string | null;
+  duracao_dias: number | null;
+  usos: number;
+};
+
+export type ItemCatalogo = {
+  id: number | null;
+  nome: string;
+  origem: "oficial" | "clinica" | "uso";
+  ativo: boolean;
+  usos: number;
+};
+
 export type Atestado = {
   id?: number;
   dias_afastamento?: number | null;
@@ -1646,6 +1825,31 @@ export type PedidoExame = {
   id?: number;
   exames_solicitados: string;
   observacoes?: string | null;
+};
+
+
+/** Horário finalizado com exame sem laudo (tela Laudos pendentes). */
+export type ExamePendente = {
+  agendamento_id: number;
+  data: string;
+  hora: string;
+  paciente_nome: string;
+  medico_id: number;
+  medico_nome: string;
+  exames: string[];
+};
+/** Laudo dos exames auxiliares de um horário (Sala de espera). */
+export type ExamesResultadoAgendamento = {
+  agendamento_id: number;
+  paciente_id: number;
+  paciente_nome: string;
+  conta_id: number | null;
+  itens: {
+    item_id: number;
+    procedimento_nome: string;
+    exame_anexo_id: number | null;
+    exame_nome: string | null;
+  }[];
 };
 
 export type ExameAnexo = {
@@ -1775,6 +1979,10 @@ export type CobrancaProcedimento = {
   ativo: number;
   orientacoes_paciente?: string | null;
   modo_clinico: "prontuario" | "aso" | "nenhum";
+  /** Agenda Nova: duração sugerida (min). null = usa a do tipo de agendamento. */
+  duracao_minutos?: number | null;
+  /** Agenda Nova: cor do card na agenda (#RRGGBB), automática se não escolhida. */
+  cor?: string | null;
 };
 
 export type CobrancaPreco = {
@@ -1857,6 +2065,7 @@ export type CobrancaCaixaConta = {
   total_liquido_centavos: number;
   total_pago_centavos: number;
   saldo_pendente_centavos: number;
+  formas?: { forma: string; valor_centavos: number }[];
 };
 
 export type CobrancaCaixaDoDia = {
@@ -1972,6 +2181,7 @@ export type CobrancaConvenioGuiaInput = {
 
 export type CobrancaContaDetalhe = CobrancaContaResumo & {
   observacao: string | null;
+  agendamento_status?: string | null;
   valor_desconto_centavos: number;
   motivo_desconto?: string | null;
   itens: CobrancaContaItem[];

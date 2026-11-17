@@ -8,8 +8,35 @@ import {
   CpfDuplicadoError,
   resolverCpfPaciente,
 } from "../services/pacienteCpf.js";
+import { logAcesso } from "../services/logAcesso.js";
 
 export const pacientesRouter = Router();
+
+/** Campos de identificação: o log guarda o valor ANTIGO e o NOVO. */
+const CAMPOS_IDENTIDADE = ["nome", "data_nasc", "cpf", "telefone"] as const;
+const CAMPOS_AUDITADOS = [
+  ...CAMPOS_IDENTIDADE,
+  "email", "endereco", "numero", "bairro", "cidade", "uf", "fone_emergencia",
+  "alergias", "medicacoes_uso", "observacoes_clinicas",
+] as const;
+
+/** B3 [13]: resumo das mudanças do cadastro (identidade com antes → depois). */
+function diffPaciente(
+  antes: Record<string, unknown>,
+  depois: Record<string, unknown>,
+): string {
+  const norm = (v: unknown) => (v == null ? "" : String(v));
+  const partes: string[] = [];
+  for (const c of CAMPOS_AUDITADOS) {
+    if (norm(antes[c]) === norm(depois[c])) continue;
+    partes.push(
+      (CAMPOS_IDENTIDADE as readonly string[]).includes(c)
+        ? `${c}: "${norm(antes[c])}" → "${norm(depois[c])}"`
+        : c,
+    );
+  }
+  return partes.join("; ");
+}
 
 pacientesRouter.use(requireAuth(), requireModulo("pacientes"));
 
@@ -160,6 +187,9 @@ pacientesRouter.put(
       }
       throw e;
     }
+    const antes = db.prepare(`SELECT * FROM pacientes WHERE id = ?`).get(id) as
+      | Record<string, unknown>
+      | undefined;
     try {
       const info = db
         .prepare(
@@ -189,7 +219,17 @@ pacientesRouter.put(
         res.status(404).json({ error: "Paciente não encontrado" });
         return;
       }
-      res.json(db.prepare(`SELECT * FROM pacientes WHERE id = ?`).get(id));
+      const depois = db.prepare(`SELECT * FROM pacientes WHERE id = ?`).get(id) as Record<string, unknown>;
+      const mudancas = antes ? diffPaciente(antes, depois) : "";
+      if (mudancas) {
+        logAcesso({
+          usuarioId: req.usuario!.id,
+          pacienteId: id,
+          acao: "paciente_alterado",
+          detalhe: mudancas.slice(0, 2000),
+        });
+      }
+      res.json(depois);
     } catch (e) {
       const handled = tratarErroCpf(e);
       if (handled) {
@@ -205,6 +245,9 @@ pacientesRouter.delete(
   "/:id",
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
+    const antes = getDb()
+      .prepare(`SELECT nome, cpf, data_nasc FROM pacientes WHERE id = ?`)
+      .get(id) as { nome: string; cpf: string | null; data_nasc: string | null } | undefined;
     try {
       const info = getDb()
         .prepare(`DELETE FROM pacientes WHERE id = ?`)
@@ -213,6 +256,13 @@ pacientesRouter.delete(
         res.status(404).json({ error: "Paciente não encontrado" });
         return;
       }
+      // Paciente já não existe: o log guarda os dados no texto (sem paciente_id).
+      logAcesso({
+        usuarioId: req.usuario!.id,
+        pacienteId: null,
+        acao: "paciente_excluido",
+        detalhe: `id=${id} nome="${antes?.nome ?? ""}" cpf="${antes?.cpf ?? ""}" nasc="${antes?.data_nasc ?? ""}"`,
+      });
       res.status(204).send();
     } catch (e: unknown) {
       const code = (e as { code?: string }).code;

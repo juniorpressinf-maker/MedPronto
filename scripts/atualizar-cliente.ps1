@@ -111,6 +111,8 @@ try {
         throw 'Node.js nao encontrado na pasta da instalacao. Inclua a pasta node\ no pacote ou rode Instalar MedPronto.bat.'
     }
 
+    # Antes do build: arquivos removidos do projeto (ex.: agenda antiga) quebrariam o tsc.
+    Remove-MedProntoArquivosObsoletos -InstallDir $InstallDir
     Log '[4/6] verificando build...'
     Ensure-MedProntoBuild -InstallDir $InstallDir -Tools $tools -Log { param($m) Log "  $m" }
 

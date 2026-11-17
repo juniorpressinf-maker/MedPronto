@@ -1,4 +1,5 @@
 import { CadastroSimples } from "../components/CadastroSimples";
+import { ImpressaoPreferencia } from "../components/ImpressaoPreferencia";
 
 export function MedicosPage() {
   return (
@@ -74,6 +75,15 @@ export function MedicosPage() {
           colSpan: 2,
         },
       ]}
+      formExtra={({ editId }) => (
+        <div className="mt-3">
+          <h3 className="text-sm font-semibold mb-2">Impressão dos documentos do atendimento</h3>
+          <ImpressaoPreferencia key={editId} medicoId={editId} noCadastro />
+          <p className="text-xs text-[var(--muted)] mt-1 mb-0">
+            Receita, atestado, pedido de exame e consulta. Salva ao mudar. O médico também pode trocar na tela de atendimento.
+          </p>
+        </div>
+      )}
       listColumns={[
         { key: "nome", label: "Nome" },
         { key: "login", label: "Usuário" },

@@ -38,14 +38,43 @@ function formatBRL(centavos: number): string {
   });
 }
 
+type Variacao = { texto: string; sinal: 1 | -1 | 0 } | null;
+
+/** Variação % entre atual e anterior; null quando não há base de comparação. */
+function variacaoPct(
+  atual: number | null | undefined,
+  anterior: number | null | undefined,
+): Variacao {
+  if (atual == null || anterior == null || anterior === 0) return null;
+  const pct = Math.round(((atual - anterior) / anterior) * 1000) / 10;
+  return {
+    texto: `${pct > 0 ? "+" : ""}${pct.toLocaleString("pt-BR")}%`,
+    sinal: pct > 0 ? 1 : pct < 0 ? -1 : 0,
+  };
+}
+
+/** Variação em pontos percentuais (para taxas). */
+function variacaoPp(
+  atual: number | null | undefined,
+  anterior: number | null | undefined,
+): Variacao {
+  if (atual == null || anterior == null) return null;
+  const pp = Math.round((atual - anterior) * 10) / 10;
+  return {
+    texto: `${pp > 0 ? "+" : ""}${pp.toLocaleString("pt-BR")} p.p.`,
+    sinal: pp > 0 ? 1 : pp < 0 ? -1 : 0,
+  };
+}
+
 type KpiCardProps = {
   label: string;
   valor: string | number;
   hint?: string;
   className?: string;
+  variacao?: Variacao;
 };
 
-function KpiCard({ label, valor, hint, className = "" }: KpiCardProps) {
+function KpiCard({ label, valor, hint, className = "", variacao }: KpiCardProps) {
   return (
     <div className={`dup-resumo-card dup-resumo-card--com-datas ${className}`}>
       <div className="dup-resumo-card__corpo">
@@ -53,6 +82,24 @@ function KpiCard({ label, valor, hint, className = "" }: KpiCardProps) {
         <div className="dup-resumo-card__valor">{valor}</div>
         {hint ? (
           <div className="dup-resumo-card__qtd text-xs opacity-90">{hint}</div>
+        ) : null}
+        {variacao !== undefined ? (
+          <div
+            className="text-xs font-semibold mt-1"
+            style={{
+              color:
+                variacao == null || variacao.sinal === 0
+                  ? "var(--muted)"
+                  : variacao.sinal > 0
+                    ? "#15803d"
+                    : "#b91c1c",
+            }}
+            title="Comparado ao período anterior de mesma duração"
+          >
+            {variacao == null
+              ? "— vs período anterior"
+              : `${variacao.sinal > 0 ? "▲" : variacao.sinal < 0 ? "▼" : "="} ${variacao.texto} vs anterior`}
+          </div>
         ) : null}
       </div>
     </div>
@@ -257,6 +304,10 @@ export function DashboardPage() {
                   className="dup-resumo--paga"
                   label="Atendimentos finalizados"
                   valor={data.clinico.totais.finalizados}
+                  variacao={variacaoPct(
+                    data.clinico.totais.finalizados,
+                    data.comparativo?.anterior.finalizados,
+                  )}
                 />
                 <KpiCard
                   className="dup-resumo--aberto"
@@ -281,12 +332,20 @@ export function DashboardPage() {
                       : "—"
                   }
                   hint="Finalizados ÷ (finalizados + faltas)"
+                  variacao={variacaoPp(
+                    data.clinico.totais.taxa_comparecimento,
+                    data.comparativo?.anterior.taxa_comparecimento,
+                  )}
                 />
                 <KpiCard
                   className="dup-resumo--todos"
                   label="Pacientes novos"
                   valor={data.clinico.totais.pacientes_novos}
                   hint="Cadastros no período"
+                  variacao={variacaoPct(
+                    data.clinico.totais.pacientes_novos,
+                    data.comparativo?.anterior.pacientes_novos,
+                  )}
                 />
                 <KpiCard
                   className="dup-resumo--hoje"
@@ -410,6 +469,34 @@ export function DashboardPage() {
                         label="Arrecadado"
                         valor={formatBRL(data.financeiro.arrecadado_centavos)}
                         hint="Pagamentos registrados"
+                        variacao={variacaoPct(
+                          data.financeiro.arrecadado_centavos,
+                          data.comparativo?.anterior.arrecadado_centavos,
+                        )}
+                      />
+                      <KpiCard
+                        className="dup-resumo--todos"
+                        label="Faturado"
+                        valor={formatBRL(data.financeiro.faturado_centavos)}
+                        hint="Produção das contas do período"
+                        variacao={variacaoPct(
+                          data.financeiro.faturado_centavos,
+                          data.comparativo?.anterior.faturado_centavos,
+                        )}
+                      />
+                      <KpiCard
+                        className="dup-resumo--hoje"
+                        label="Ticket médio"
+                        valor={
+                          data.financeiro.ticket_medio_centavos != null
+                            ? formatBRL(data.financeiro.ticket_medio_centavos)
+                            : "—"
+                        }
+                        hint="Faturado ÷ contas do período"
+                        variacao={variacaoPct(
+                          data.financeiro.ticket_medio_centavos,
+                          data.comparativo?.anterior.ticket_medio_centavos,
+                        )}
                       />
                       <KpiCard
                         className="dup-resumo--aberto"

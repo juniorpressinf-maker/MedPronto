@@ -2,7 +2,7 @@ import { Building2, Eye, EyeOff, ImagePlus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FormActions } from "./FormActions";
 import { useMessageBox } from "../lib/messageBoxContext";
-import { isFormDirty, snapshotForm } from "../lib/formDirty";
+import { snapshotForm } from "../lib/formDirty";
 import { useFocusFirstField } from "../lib/useFocusFirstField";
 import { upperPrompt } from "../lib/upperPrompt";
 import { validarEmailOpcional } from "../lib/validacoes";
@@ -65,7 +65,7 @@ export function ClinicaForm({ mode, layout = "default", initial, saving, onSubmi
     });
 
   const dirty = useMemo(
-    () => baseline !== "" && isFormDirty(clinicaSnapshot(), baseline),
+    () => baseline !== "" && clinicaSnapshot() !== baseline,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- snapshot fields
     [form, emailConfirmacao, senhaEmailConfirmacao, baseline],
   );

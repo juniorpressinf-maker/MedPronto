@@ -1,5 +1,6 @@
 import type { Database } from "better-sqlite3";
 import { getDb } from "../db/index.js";
+import { hojeIsoLocal } from "../lib/diasUteis.js";
 import { logAcesso } from "./logAcesso.js";
 import {
   obterContaDetalhe,
@@ -228,7 +229,7 @@ export function receberConvenio(
 
     const dataRecebimento =
       dados.data_recebimento?.trim() ||
-      new Date().toISOString().slice(0, 10);
+      hojeIsoLocal();
     assertDataRecebimento(dataRecebimento);
     const registradoEm = registradoEmFromData(dataRecebimento);
 

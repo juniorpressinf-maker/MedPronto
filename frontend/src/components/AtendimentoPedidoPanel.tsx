@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AtendimentoCardTitulo } from "./AtendimentoCardTitulo";
 import { FormActions } from "./FormActions";
-import { ApiError, api, type PedidoExame } from "../lib/api";
-import { isFormDirty, snapshotForm } from "../lib/formDirty";
+import { NomeAutocomplete } from "./NomeAutocomplete";
+import { ApiError, PdfCancelado, api, type PedidoExame } from "../lib/api";
+import { snapshotForm } from "../lib/formDirty";
 import { upperPrompt } from "../lib/upperPrompt";
+import { focarCampoInicial } from "../lib/focoInicial";
+import { useAutoSalvar } from "../lib/useAutoSalvar";
 import { useMessageBox } from "../lib/messageBoxContext";
 
 type Props = {
@@ -86,6 +89,7 @@ export function AtendimentoPedidoPanel({
         setLinhasExames(examesParaLinhas(next.exames_solicitados));
         setBaseline(snapshotPedido(next));
         setSaved(Boolean(r.pedido?.id));
+        focarCampoInicial(listaRef.current);
       } catch (e) {
         if (!active) return;
         void msg.error(e instanceof ApiError ? e.message : "Erro ao carregar pedido");
@@ -98,7 +102,7 @@ export function AtendimentoPedidoPanel({
   }, [prontuarioId, msg]);
 
   const dirty = useMemo(
-    () => isFormDirty(snapshotPedido(form), baseline),
+    () => snapshotPedido(form) !== baseline,
     [form, baseline],
   );
 
@@ -121,19 +125,20 @@ export function AtendimentoPedidoPanel({
     );
   };
 
-  const avancarParaProximoExame = (idx: number) => {
-    if (idx + 1 < linhasExames.length && !linhasExames[idx + 1]?.trim()) {
+  const avancarParaProximoExame = (idx: number, linhas: string[] = linhasExames) => {
+    if (linhas !== linhasExames) atualizarLinhas(linhas);
+    if (idx + 1 < linhas.length && !linhas[idx + 1]?.trim()) {
       focarLinha(idx + 1);
       return;
     }
-    const proximoVazio = linhasExames.findIndex(
+    const proximoVazio = linhas.findIndex(
       (linha, i) => i > idx && !linha.trim(),
     );
     if (proximoVazio >= 0) {
       focarLinha(proximoVazio);
       return;
     }
-    const next = [...linhasExames];
+    const next = [...linhas];
     const ins = idx + 1;
     if (ins >= next.length) {
       next.push("");
@@ -144,34 +149,53 @@ export function AtendimentoPedidoPanel({
     atualizarLinhas(next);
   };
 
-  const salvar = async () => {
-    if (somenteLeitura) return;
+  const salvar = async (silencioso = false): Promise<boolean> => {
+    if (somenteLeitura) return false;
     if (!form.exames_solicitados.trim()) {
-      void msg.warning("Informe os exames solicitados");
-      return;
+      if (!silencioso) void msg.warning("Informe os exames solicitados");
+      return false;
     }
-    setSaving(true);
+    if (!silencioso) setSaving(true);
     try {
       await api.pedidoExameSave(prontuarioId, form);
       setBaseline(snapshotPedido(form));
       setSaved(true);
-      void msg.success("Pedido salvo");
+      if (!silencioso) void msg.success("Pedido salvo");
+      return true;
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
-        void msg.warning(e.message);
+        if (!silencioso) void msg.warning(e.message);
         onConsultaEncerrada?.();
-        return;
+        return false;
       }
-      void msg.error(e instanceof ApiError ? e.message : "Erro ao salvar");
+      if (!silencioso) void msg.error(e instanceof ApiError ? e.message : "Erro ao salvar");
     } finally {
       setSaving(false);
     }
+    return false;
   };
+
+  // Salva sozinho (1,5 s após digitar e ao sair); o botão Salvar vira indicador.
+  const indicadorSalvo = useAutoSalvar({
+    chave: JSON.stringify(snapshotPedido(form)),
+    dirty,
+    desligado: somenteLeitura,
+    salvar,
+  });
 
   const imprimir = async () => {
     try {
-      await api.pedidoExamePdf(prontuarioId);
+      // Com alteração não salva: salva antes (o PDF sai do que está gravado).
+      await api.pedidoExamePdf(
+        prontuarioId,
+        dirty
+          ? async () => {
+              if (!(await salvar())) throw new PdfCancelado();
+            }
+          : undefined,
+      );
     } catch (e) {
+      if (e instanceof PdfCancelado) return;
       void msg.error(e instanceof ApiError ? e.message : "Erro ao gerar PDF");
     }
   };
@@ -185,13 +209,20 @@ export function AtendimentoPedidoPanel({
         <div className="pedido-exame-lista mt-1" ref={listaRef}>
           {linhasExames.map((linha, idx) => (
             <div key={idx} className="pedido-exame-linha">
-              <input
-                type="text"
+              <NomeAutocomplete
                 className="pedido-exame-linha__input"
                 value={linha}
                 readOnly={somenteLeitura}
                 placeholder={`Exame ${idx + 1}`}
-                onChange={(e) => setLinha(idx, e.target.value)}
+                buscar={(q) => api.pedidoExameSugestoes(prontuarioId, q).then((r) => r.itens)}
+                onChange={(v) => setLinha(idx, v)}
+                focoInicial={idx === 0}
+                onSelecionar={(nome) =>
+                  avancarParaProximoExame(
+                    idx,
+                    linhasExames.map((l, i) => (i === idx ? upperPrompt(nome) : l)),
+                  )
+                }
                 onKeyDown={(e) => {
                   if (somenteLeitura) return;
                   if (e.key === "Enter") {
@@ -252,6 +283,7 @@ export function AtendimentoPedidoPanel({
         saved={saved}
         saveLabel="Salvar pedido"
         onSave={() => void salvar()}
+        indicador={indicadorSalvo}
         onBack={onVoltar}
         backLabel="Voltar ao prontuário"
         somenteLeitura={somenteLeitura}

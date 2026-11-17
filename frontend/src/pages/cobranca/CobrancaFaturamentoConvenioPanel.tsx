@@ -196,7 +196,7 @@ export function CobrancaFaturamentoConvenioPanel({ de, ate, onDeChange, onAteCha
                           <td className="text-right">
                             <Link
                               to={linkCobrancaConta(c.conta_id, returnPath, "Voltar ao relatório")}
-                              className="btn btn-secondary btn-sm text-xs no-underline"
+                              className={`btn btn-sm text-xs no-underline ${c.status === "pago" ? "btn-cobranca-paga" : "btn-secondary"}`}
                             >
                               Conta
                             </Link>

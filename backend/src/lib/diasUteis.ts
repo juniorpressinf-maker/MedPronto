@@ -1,4 +1,4 @@
-/** Sábado, domingo e feriados nacionais (Brasil) — espelho de frontend/lib/diasEspeciais.ts */
+/** Sábado, domingo e feriados nacionais (Brasil) — espelho de frontend/src/lib/agendaNova/feriados.ts */
 
 function parseIso(iso: string): { y: number; m: number; d: number } | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.slice(0, 10));
@@ -48,33 +48,42 @@ function addDias(base: Date, dias: number): Date {
   return dt;
 }
 
-const FERIADOS_FIXOS: ReadonlyArray<{ m: number; d: number }> = [
-  { m: 1, d: 1 },
-  { m: 4, d: 21 },
-  { m: 5, d: 1 },
-  { m: 9, d: 7 },
-  { m: 10, d: 12 },
-  { m: 11, d: 2 },
-  { m: 11, d: 15 },
-  { m: 11, d: 20 },
-  { m: 12, d: 25 },
+const FERIADOS_FIXOS: ReadonlyArray<{ m: number; d: number; nome: string }> = [
+  { m: 1, d: 1, nome: "Confraternização Universal" },
+  { m: 4, d: 21, nome: "Tiradentes" },
+  { m: 5, d: 1, nome: "Dia do Trabalho" },
+  { m: 9, d: 7, nome: "Independência" },
+  { m: 10, d: 12, nome: "N. Sra. Aparecida" },
+  { m: 11, d: 2, nome: "Finados" },
+  { m: 11, d: 15, nome: "Proclamação da República" },
+  { m: 11, d: 20, nome: "Consciência Negra" },
+  { m: 12, d: 25, nome: "Natal" },
 ];
 
-const feriadosMoveisCache = new Map<number, Set<string>>();
+const feriadosMoveisCache = new Map<number, Map<string, string>>();
 
-function feriadosMoveisAno(ano: number): Set<string> {
-  let set = feriadosMoveisCache.get(ano);
-  if (!set) {
+function feriadosMoveisAno(ano: number): Map<string, string> {
+  let mapa = feriadosMoveisCache.get(ano);
+  if (!mapa) {
     const pascoa = pascoaAno(ano);
-    set = new Set([
-      isoFromDate(addDias(pascoa, -48)),
-      isoFromDate(addDias(pascoa, -47)),
-      isoFromDate(addDias(pascoa, -2)),
-      isoFromDate(addDias(pascoa, 60)),
+    mapa = new Map([
+      [isoFromDate(addDias(pascoa, -48)), "Carnaval"],
+      [isoFromDate(addDias(pascoa, -47)), "Carnaval"],
+      [isoFromDate(addDias(pascoa, -2)), "Sexta-feira Santa"],
+      [isoFromDate(addDias(pascoa, 60)), "Corpus Christi"],
     ]);
-    feriadosMoveisCache.set(ano, set);
+    feriadosMoveisCache.set(ano, mapa);
   }
-  return set;
+  return mapa;
+}
+
+/** Nome do feriado nacional na data, ou null. */
+export function nomeFeriadoBr(iso: string): string | null {
+  const parts = parseIso(iso);
+  if (!parts) return null;
+  const fixo = FERIADOS_FIXOS.find((f) => f.m === parts.m && f.d === parts.d);
+  if (fixo) return fixo.nome;
+  return feriadosMoveisAno(parts.y).get(iso.slice(0, 10)) ?? null;
 }
 
 export function isFimDeSemana(iso: string): boolean {
@@ -83,12 +92,7 @@ export function isFimDeSemana(iso: string): boolean {
 }
 
 export function isFeriadoBr(iso: string): boolean {
-  const parts = parseIso(iso);
-  if (!parts) return false;
-  for (const f of FERIADOS_FIXOS) {
-    if (f.m === parts.m && f.d === parts.d) return true;
-  }
-  return feriadosMoveisAno(parts.y).has(iso.slice(0, 10));
+  return nomeFeriadoBr(iso) !== null;
 }
 
 export function isDiaNaoUtil(iso: string): boolean {
@@ -118,4 +122,11 @@ export function addDiasIso(iso: string, dias: number): string {
 export function hojeIsoLocal(): string {
   const d = new Date();
   return isoFromParts(d.getFullYear(), d.getMonth() + 1, d.getDate());
+}
+
+/** "YYYY-MM-DD HH:MM:SS" no horário LOCAL (igual a datetime('now','localtime') do SQLite). */
+export function agoraLocalSql(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${hojeIsoLocal()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }

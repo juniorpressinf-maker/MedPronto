@@ -1,5 +1,7 @@
+import { registrarUsoDocumentos } from "../services/catalogoNomes.js";
 import { Router } from "express";
 import { z } from "zod";
+import { limparHtmlProntuario } from "../services/textoFormatado.js";
 import { requireAuth, requireModulo } from "../auth/middleware.js";
 import { getDb } from "../db/index.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
@@ -435,6 +437,13 @@ prontuariosRouter.put(
       );
     }
 
+    // Campo "texto formatado" (editor): só HTML seguro entra no banco.
+    for (const c of campos) {
+      if (c.tipo === "texto_formatado" && dados[c.id] !== undefined) {
+        dados = { ...dados, [c.id]: limparHtmlProntuario(dados[c.id]) };
+      }
+    }
+
     const legado = dadosJsonParaLegado(dados, campos);
     const retornoDias = legado.retorno_dias ?? null;
     const retornoAte =
@@ -707,48 +716,61 @@ prontuariosRouter.post(
     }
     assertConsultaEditavel(id);
 
-    let fichaId = pr.ficha_template_id;
-    if (fichaId == null) {
-      try {
-        fichaId = resolveFichaTemplateIdFromAgendamento({});
-        assertFichaPermitida(pr.medico_id, fichaId);
-        getDb()
-          .prepare(`UPDATE prontuarios SET ficha_template_id = ? WHERE id = ?`)
-          .run(fichaId, id);
-      } catch (e) {
-        if (handleFichaError(e, res)) return;
-        throw e;
-      }
-    }
-
-    if (!pr.template_snapshot_json?.trim()) {
-      try {
-        assertFichaPermitida(pr.medico_id, fichaId);
-        const ficha = getFichaTemplateOrThrow(fichaId);
-        const snapshot = buildTemplateSnapshot(ficha);
-        getDb()
-          .prepare(
-            `UPDATE prontuarios SET template_snapshot_json = ? WHERE id = ?`,
-          )
-          .run(snapshotToJson(snapshot), id);
-      } catch (e) {
-        if (handleFichaError(e, res)) return;
-        throw e;
-      }
-    }
-
+    const db = getDb();
     if (pr.agendamento_id) {
-      getDb()
-        .prepare(
-          `UPDATE agendamentos SET status = 'finalizado',
-           updated_at = datetime('now', 'localtime') WHERE id = ?`,
-        )
-        .run(pr.agendamento_id);
+      const ag = db
+        .prepare(`SELECT status FROM agendamentos WHERE id = ?`)
+        .get(pr.agendamento_id) as { status: string } | undefined;
+      if (ag?.status !== "em_atendimento") {
+        res.status(409).json({
+          error: `O horário desta consulta está "${ag?.status ?? "inexistente"}" — só é possível finalizar com o paciente em atendimento.`,
+        });
+        return;
+      }
     }
-    if (pr.retificacao_de_id) {
-      getDb()
-        .prepare(`UPDATE prontuarios SET retificacao_finalizada = 1 WHERE id = ?`)
-        .run(id);
+
+    let fichaId = pr.ficha_template_id ?? null;
+    let snapshotJson: string | null = null;
+    try {
+      if (fichaId == null) fichaId = resolveFichaTemplateIdFromAgendamento({});
+      assertFichaPermitida(pr.medico_id, fichaId);
+      if (!pr.template_snapshot_json?.trim()) {
+        snapshotJson = snapshotToJson(buildTemplateSnapshot(getFichaTemplateOrThrow(fichaId)));
+      }
+    } catch (e) {
+      if (handleFichaError(e, res)) return;
+      throw e;
+    }
+
+    try {
+      db.transaction(() => {
+        db.prepare(
+          `UPDATE prontuarios SET
+             ficha_template_id = COALESCE(ficha_template_id, ?),
+             template_snapshot_json = COALESCE(template_snapshot_json, ?),
+             retificacao_finalizada = CASE WHEN retificacao_de_id IS NOT NULL THEN 1 ELSE retificacao_finalizada END
+           WHERE id = ?`,
+        ).run(fichaId, snapshotJson, id);
+        if (pr.agendamento_id) {
+          const ch = db
+            .prepare(
+              `UPDATE agendamentos SET status = 'finalizado',
+               updated_at = datetime('now', 'localtime')
+               WHERE id = ? AND status = 'em_atendimento'`,
+            )
+            .run(pr.agendamento_id);
+          if (ch.changes !== 1) throw new Error("STATUS_CONFLICT");
+        }
+        registrarUsoDocumentos(id, db); // consulta encerrada: receita/pedido entram nas sugestões
+      })();
+    } catch (e) {
+      if (e instanceof Error && e.message === "STATUS_CONFLICT") {
+        res.status(409).json({
+          error: "O horário foi alterado por outra pessoa — recarregue e tente de novo.",
+        });
+        return;
+      }
+      throw e;
     }
     logAcesso({
       usuarioId: req.usuario!.id,

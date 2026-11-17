@@ -30,7 +30,8 @@ function Get-ClientDevPaths {
             '.cursor',
             'testsprite_tests',
             'frontend\src',
-            'backend\src'
+            'backend\src',
+            'backend\scripts\lib'
         )
         # Excluir ja na copia para staging (fontes ficam de fora ate o build terminar).
         CopyExcludeDirs = @(
@@ -45,6 +46,7 @@ function Get-ClientDevPaths {
             '.env',
             '.env.local',
             'Compilar MedPronto.bat',
+            'compilar.bat',
             'preparar-teste.bat',
             'zerar-base.bat',
             'reset-acesso.bat',
@@ -62,7 +64,11 @@ function Get-ClientDevPaths {
             'agenda-instalador-offline.zip',
             'ULTIMO-ERRO.txt',
             'ULTIMO-ERRO-EMPACOTE.txt',
-            'is-node-lts.mjs'
+            'is-node-lts.mjs',
+            'limpar-chat.js',
+            'limpar-e-recriar-chat.js',
+            'recompilar-chat.bat',
+            'recompilar-chat-forcado.bat'
         )
         Files = @(
             'README.md',
@@ -71,6 +77,7 @@ function Get-ClientDevPaths {
             '.env',
             '.env.local',
             'Compilar MedPronto.bat',
+            'compilar.bat',
             'preparar-teste.bat',
             'zerar-base.bat',
             'reset-acesso.bat',
@@ -106,7 +113,7 @@ function Get-ClientDevPaths {
             'scripts\zerar-base.mjs',
             'scripts\reset-acesso.mjs'
         )
-        BackendScriptPatterns = @('test-*.ts', 'diag-*.ts', 'preparar-teste.ts')
+        BackendScriptPatterns = @('test-*.ts', 'diag-*.ts', 'preparar-teste.ts', 'gerar-catalogos.ts')
     }
 }
 
@@ -144,7 +151,8 @@ function Build-EmpacotarExcludeLists {
     $excludeFiles = @(
         '*.zip',
         '*.log',
-        '*.sqlite'
+        '*.sqlite',
+        '*.db'
     ) + $dev.CopyExcludeFiles + $vendor.Files
 
     return @{
@@ -323,6 +331,13 @@ function Copy-ProjetoParaStaging {
         ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
 
     Remove-VendorOnlyFromStaging -Staging $Staging
+
+    # Listas de medicamentos/exames (busca automatica na receita e no pedido) precisam ir ao cliente.
+    foreach ($rel in @('backend\recursos\catalogo_medicamentos.json', 'backend\recursos\catalogo_exames.json')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Staging $rel))) {
+            throw "$rel nao foi copiado para o pacote"
+        }
+    }
 }
 
 function Test-WindowsExeFile {

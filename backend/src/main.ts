@@ -10,6 +10,7 @@ import { errorHandler } from "./middleware/errorHandler.js";
 import { requireValidLicense } from "./licenca.js";
 import { apiRouter } from "./routes/index.js";
 import { garantirUsuariosOperacionais } from "./services/usuariosPadrao.js";
+import { garantirCatalogosIniciais, registrarUsoEncerradosPendentes } from "./services/catalogoNomes.js";
 import { stopCloudflaredTunnel } from "./utils/cloudflareTunnel.js";
 import { iniciarWhatsAppCron } from "./services/whatsappCron.js";
 import { startClient } from "./whatsapp/cliente.js";
@@ -21,12 +22,30 @@ if (applied.length > 0) {
 }
 garantirUsuariosOperacionais();
 garantirAsoModeloPadrao();
+try {
+  garantirCatalogosIniciais();
+  registrarUsoEncerradosPendentes();
+} catch (err) {
+  console.warn("[catalogo] carga inicial falhou:", err);
+}
 iniciarWhatsAppCron();
 void startClient().catch((err) =>
   console.error("[whatsapp] erro ao iniciar cliente:", err),
 );
 
 const app = express();
+
+/**
+ * Splash local (file:// → Origin "null") consulta /api/startup/* para virar a tela de login.
+ * Liberado só nessas rotas de status (GET, sem cookie) — o resto da API segue o CORS restrito.
+ */
+app.use("/api/startup", (req, res, next) => {
+  if (req.method === "GET" || req.method === "HEAD") {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cache-Control", "no-store");
+  }
+  next();
+});
 
 app.use(
   cors({

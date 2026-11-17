@@ -1,4 +1,4 @@
-﻿import {
+import {
   createContext,
   useCallback,
   useContext,
@@ -24,9 +24,21 @@ export type MessageOptions = {
   cancelLabel?: string;
 };
 
+/** Pergunta com campo de texto (ex.: motivo obrigatório). */
+export type PromptOptions = MessageOptions & {
+  inputLabel?: string;
+  placeholder?: string;
+  /** Mínimo de caracteres (sem espaços nas pontas) para liberar o botão. */
+  minLength?: number;
+  maxLength?: number;
+  /** Texto já preenchido (ex.: renomear). */
+  valorInicial?: string;
+};
+
 type ActiveMessage = MessageOptions & {
   kind: MessageKind;
-  resolve?: (value: boolean) => void;
+  input?: Omit<PromptOptions, keyof MessageOptions>;
+  resolve?: (value: boolean, texto?: string) => void;
 };
 
 type MessageBoxApi = {
@@ -36,6 +48,8 @@ type MessageBoxApi = {
   warning: (options: MessageOptions | string) => Promise<void>;
   error: (options: MessageOptions | string) => Promise<void>;
   confirm: (options: MessageOptions | string) => Promise<boolean>;
+  /** Devolve o texto digitado (já sem espaços nas pontas) ou null se cancelar. */
+  prompt: (options: PromptOptions) => Promise<string | null>;
 };
 
 const MessageBoxContext = createContext<MessageBoxApi | null>(null);
@@ -68,17 +82,27 @@ function MessageBoxDialog({
   onClose,
 }: {
   active: ActiveMessage;
-  onClose: (confirmed: boolean) => void;
+  onClose: (confirmed: boolean, texto?: string) => void;
 }) {
   const meta = KIND_META[active.kind];
   const Icon = meta.icon;
   const isConfirm = active.kind === "confirm";
+  const input = active.input;
+  const [texto, setTexto] = useState(input?.valorInicial ?? "");
+  const minimo = input?.minLength ?? 1;
+  const textoValido = !input || texto.trim().length >= minimo;
+
+  const confirmar = useCallback(() => {
+    if (!textoValido) return;
+    onClose(true, input ? texto.trim() : undefined);
+  }, [input, onClose, texto, textoValido]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Enter") {
+      // No campo de texto, Shift+Enter quebra linha; Enter confirma.
+      if (e.key === "Enter" && !(input && e.shiftKey)) {
         e.preventDefault();
-        onClose(true);
+        confirmar();
       } else if (e.key === "Escape") {
         e.preventDefault();
         onClose(isConfirm ? false : true);
@@ -86,7 +110,7 @@ function MessageBoxDialog({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isConfirm, onClose]);
+  }, [confirmar, input, isConfirm, onClose]);
 
   return (
     <div
@@ -113,6 +137,27 @@ function MessageBoxDialog({
         <p id="msg-box-text" className="msg-box__text">
           {active.message}
         </p>
+        {input ? (
+          <label className="block mb-4">
+            {input.inputLabel ? (
+              <span className="text-sm font-medium block mb-1">{input.inputLabel}</span>
+            ) : null}
+            <textarea
+              className="legacy-input w-full min-h-[3.5rem]"
+              rows={3}
+              autoFocus
+              value={texto}
+              maxLength={input.maxLength ?? 500}
+              placeholder={input.placeholder}
+              onChange={(e) => setTexto(e.target.value)}
+            />
+            {minimo > 1 && !textoValido ? (
+              <span className="text-xs text-[var(--muted)]">
+                Mínimo de {minimo} caracteres.
+              </span>
+            ) : null}
+          </label>
+        ) : null}
         <div className="msg-box__actions">
           {isConfirm && (
             <button
@@ -126,8 +171,9 @@ function MessageBoxDialog({
           <button
             type="button"
             className="btn btn-primary"
-            autoFocus
-            onClick={() => onClose(true)}
+            autoFocus={!input}
+            disabled={!textoValido}
+            onClick={confirmar}
           >
             {active.confirmLabel ?? meta.defaultConfirm}
           </button>
@@ -140,9 +186,9 @@ function MessageBoxDialog({
 export function MessageBoxProvider({ children }: { children: ReactNode }) {
   const [active, setActive] = useState<ActiveMessage | null>(null);
 
-  const close = useCallback((confirmed: boolean) => {
+  const close = useCallback((confirmed: boolean, texto?: string) => {
     setActive((current) => {
-      current?.resolve?.(confirmed);
+      current?.resolve?.(confirmed, texto);
       return null;
     });
   }, []);
@@ -150,6 +196,18 @@ export function MessageBoxProvider({ children }: { children: ReactNode }) {
   const show = useCallback((kind: MessageKind, options: MessageOptions) => {
     return new Promise<boolean>((resolve) => {
       setActive({ kind, ...options, resolve });
+    });
+  }, []);
+
+  const prompt = useCallback((options: PromptOptions) => {
+    const { inputLabel, placeholder, minLength, maxLength, ...msg } = options;
+    return new Promise<string | null>((resolve) => {
+      setActive({
+        kind: "confirm",
+        ...msg,
+        input: { inputLabel, placeholder, minLength, maxLength },
+        resolve: (ok, texto) => resolve(ok && texto ? texto : null),
+      });
     });
   }, []);
 
@@ -169,8 +227,9 @@ export function MessageBoxProvider({ children }: { children: ReactNode }) {
         await show("error", normalizeOptions(options));
       },
       confirm: (options) => show("confirm", normalizeOptions(options)),
+      prompt,
     }),
-    [show],
+    [show, prompt],
   );
 
   return (

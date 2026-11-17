@@ -20,10 +20,14 @@ export type ProcedimentoRow = {
   ativo: number;
   orientacoes_paciente: string | null;
   modo_clinico: ModoClinico;
+  /** Agenda Nova: duração sugerida no agendamento (null = usa o intervalo padrão da agenda). */
+  duracao_minutos: number | null;
+  /** Agenda Nova: cor do card na agenda (#RRGGBB). Automática se não informada. */
+  cor: string | null;
 };
 
 const PROC_COLS =
-  "id, codigo, nome, ativo, orientacoes_paciente, modo_clinico";
+  "id, codigo, nome, ativo, orientacoes_paciente, modo_clinico, duracao_minutos, cor";
 
 const MODOS_CLINICOS: readonly ModoClinico[] = ["prontuario", "aso", "nenhum"];
 
@@ -224,20 +228,24 @@ export function criarProcedimento(
     nome: string;
     orientacoes_paciente?: string;
     modo_clinico: ModoClinico;
+    duracao_minutos?: number | null;
+    cor?: string | null;
   },
   db: Database = getDb(),
 ): ProcedimentoRow {
   assertModoClinico(dados.modo_clinico);
   const info = db
     .prepare(
-      `INSERT INTO procedimentos (codigo, nome, ativo, orientacoes_paciente, modo_clinico)
-       VALUES (?, ?, 1, ?, ?)`,
+      `INSERT INTO procedimentos (codigo, nome, ativo, orientacoes_paciente, modo_clinico, duracao_minutos, cor)
+       VALUES (?, ?, 1, ?, ?, ?, ?)`,
     )
     .run(
       dados.codigo?.trim() || null,
       dados.nome.trim(),
       dados.orientacoes_paciente?.trim() || null,
       dados.modo_clinico,
+      dados.duracao_minutos ?? null,
+      dados.cor ? dados.cor.toUpperCase() : null,
     );
   const id = Number(info.lastInsertRowid);
   const convenios = listarConvenios(db, false);
@@ -260,6 +268,10 @@ export function atualizarProcedimento(
     ativo?: number;
     orientacoes_paciente?: string | null;
     modo_clinico?: ModoClinico;
+    /** null limpa (volta a usar o intervalo padrão da agenda). */
+    duracao_minutos?: number | null;
+    /** Cor do card na agenda (#RRGGBB). */
+    cor?: string;
   },
   db: Database = getDb(),
 ): ProcedimentoRow {
@@ -295,7 +307,8 @@ export function atualizarProcedimento(
 
   db.prepare(
     `UPDATE procedimentos
-     SET codigo = ?, nome = ?, ativo = ?, orientacoes_paciente = ?, modo_clinico = ?
+     SET codigo = ?, nome = ?, ativo = ?, orientacoes_paciente = ?, modo_clinico = ?,
+         duracao_minutos = ?, cor = ?
      WHERE id = ?`,
   ).run(
     dados.codigo !== undefined ? dados.codigo?.trim() || null : atual.codigo,
@@ -305,6 +318,8 @@ export function atualizarProcedimento(
       ? dados.orientacoes_paciente?.trim() || null
       : atual.orientacoes_paciente,
     modoNovo,
+    dados.duracao_minutos !== undefined ? dados.duracao_minutos : atual.duracao_minutos,
+    dados.cor !== undefined ? dados.cor.toUpperCase() : atual.cor,
     id,
   );
 

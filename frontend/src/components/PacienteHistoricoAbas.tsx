@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { AtendimentoHistoricoPanel } from "./AtendimentoHistoricoPanel";
 import { PacienteAdmissionalHistorico } from "./PacienteAdmissionalHistorico";
 import { PacienteAtendimentoHistorico } from "./PacienteAtendimentoHistorico";
@@ -99,4 +99,44 @@ export function PacienteHistoricoAbas({ pacienteId, pacienteNome }: Props) {
       </div>
     </div>
   );
+}
+
+export type AbaCadastro = { id: string; label: string; conteudo: ReactNode };
+
+/** Abas de histórico do paciente (para o cadastro mostrar ao lado de "Dados do paciente"). */
+export function abasHistoricoPaciente(
+  permissoes: string[] | undefined,
+  pacienteId: number,
+  pacienteNome: string,
+): AbaCadastro[] {
+  const list: AbaCadastro[] = [];
+  if (temModulo(permissoes, ["agenda", "fila_recepcao", "fila_medico", "pacientes", "prontuario_ler"])) {
+    list.push({
+      id: "atendimentos",
+      label: "Histórico de atendimento",
+      conteudo: <PacienteAtendimentoHistorico pacienteId={pacienteId} />,
+    });
+  }
+  if (temModulo(permissoes, ["admissional", "admissional_agenda"])) {
+    list.push({
+      id: "aso",
+      label: `Histórico ${ASO_TITULO_CURTO}`,
+      conteudo: <PacienteAdmissionalHistorico pacienteId={pacienteId} pacienteNome={pacienteNome} ocultarCabecalho />,
+    });
+  }
+  if (temModulo(permissoes, ["prontuario_ler", "prontuario_escrever"])) {
+    list.push({
+      id: "consultas",
+      label: "Histórico clínico",
+      conteudo: (
+        <AtendimentoHistoricoPanel
+          pacienteId={pacienteId}
+          pacienteNome={pacienteNome}
+          podeRetificar={temModulo(permissoes, "prontuario_escrever")}
+          ocultarCabecalho
+        />
+      ),
+    });
+  }
+  return list;
 }

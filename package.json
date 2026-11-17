@@ -9,6 +9,8 @@
     "dev:web": "npm run dev -w frontend",
     "build": "npm run build -w backend && npm run build -w frontend",
     "db:migrate": "node scripts/db-migrate.mjs",
+    "conferir-agenda": "node scripts/conferir-agenda.mjs",
+    "test:regressao": "node scripts/test-a7-regressao.mjs",
     "preparar-teste": "npm run preparar-teste -w backend",
     "start": "npm run start -w backend",
     "start:prod": "npm run build && npm run start -w backend"

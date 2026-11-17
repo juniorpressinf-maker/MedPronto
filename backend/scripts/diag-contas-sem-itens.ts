@@ -2,7 +2,8 @@ import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
 
-const dbPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../data/medpronto.db");
+// A7: DATABASE_PATH permite rodar numa cópia (scripts/test-a7-regressao.mjs); sem ele, banco real como antes.
+const dbPath = process.env.DATABASE_PATH || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../data/medpronto.db");
 const db = new Database(dbPath);
 const data = "2026-07-05";
 

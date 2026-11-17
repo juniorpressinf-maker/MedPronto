@@ -296,7 +296,7 @@ export function gerarPdfRelatorioCobranca(
         rel.por_forma.map((f) => [
           FORMA_LABEL[f.forma] ?? f.forma,
           formatBRL(f.valor_centavos),
-        ]),
+        ]).concat([["TOTAL", formatBRL(rel.por_forma.reduce((t, x) => t + x.valor_centavos, 0))]]),
         [width * 0.55, width * 0.45],
       );
     }
@@ -312,6 +312,14 @@ export function gerarPdfRelatorioCobranca(
           formatBRL(c.total_itens_centavos),
           formatBRL(c.arrecadado_centavos),
           formatBRL(c.a_faturar_centavos),
+        ]).concat([
+          [
+            "TOTAL",
+            String(rel.por_convenio.reduce((t, x) => t + x.atendimentos, 0)),
+            formatBRL(rel.por_convenio.reduce((t, x) => t + x.total_itens_centavos, 0)),
+            formatBRL(rel.por_convenio.reduce((t, x) => t + x.arrecadado_centavos, 0)),
+            formatBRL(rel.por_convenio.reduce((t, x) => t + x.a_faturar_centavos, 0)),
+          ],
         ]),
         [width * 0.28, width * 0.1, width * 0.2, width * 0.2, width * 0.22],
       );
@@ -326,6 +334,12 @@ export function gerarPdfRelatorioCobranca(
           p.procedimento_nome,
           String(p.quantidade),
           formatBRL(p.valor_centavos),
+        ]).concat([
+          [
+            "TOTAL",
+            String(rel.por_procedimento.reduce((t, x) => t + x.quantidade, 0)),
+            formatBRL(rel.por_procedimento.reduce((t, x) => t + x.valor_centavos, 0)),
+          ],
         ]),
         [width * 0.55, width * 0.12, width * 0.33],
       );

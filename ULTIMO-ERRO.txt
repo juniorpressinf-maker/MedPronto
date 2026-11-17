@@ -1,0 +1,27 @@
+﻿Comando npm falhou (codigo -1): run build
+
+[2026-11-05 16:02:06] Splash de inicializacao fechado.
+[2026-11-09 08:56:00] === MedPronto launcher (PID 11668) ===
+[2026-11-09 08:56:00] Verificando MedPronto...
+[2026-11-09 08:56:01] Splash de inicializacao aberto.
+[2026-11-09 08:56:01] Node: D:\MedPronto\node\node.exe
+[2026-11-09 08:56:01] [0] encerrando servidores antigos...
+[2026-11-09 08:56:19] [1] dependencias OK
+[2026-11-09 08:56:20] [build] producao OK
+[2026-11-09 08:56:20] Iniciando servidores... aguarde.
+[2026-11-09 08:56:20] [start] MedPronto :3021 (producao)
+[2026-11-09 08:57:29] Navegador: login aberto.
+[2026-11-09 08:57:31] Splash de inicializacao fechado.
+[2026-11-09 15:29:29] Servidor ja esta rodando.
+[2026-11-09 15:29:31] Navegador: login aberto.
+[2026-11-09 15:29:33] Splash de inicializacao fechado.
+[2026-11-12 10:20:07] === MedPronto launcher (PID 15056) ===
+[2026-11-12 10:20:07] Verificando MedPronto...
+[2026-11-12 10:20:07] Splash de inicializacao aberto (vira a tela de login sozinho).
+[2026-11-12 10:20:07] Node: D:\MedPronto\node\node.exe
+[2026-11-12 10:20:07] [0] encerrando servidores antigos...
+[2026-11-12 10:20:25] [1] dependencias OK
+[2026-11-12 10:20:26] Preparando sistema... Aguarde.
+[2026-11-12 10:20:26] [build] codigo alterado - recompilando...
+[2026-11-12 10:21:16] ERRO: Comando npm falhou (codigo -1): run build
+[2026-11-12 10:21:16] *** Comando npm falhou (codigo -1): run build

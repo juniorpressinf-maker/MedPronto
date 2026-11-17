@@ -15,6 +15,7 @@ import {
 } from "../auth/modulos.js";
 
 import { requireAuth, requireModulo } from "../auth/middleware.js";
+import { impressaoSchema, lerImpressao, salvarImpressao } from "./preferencias.js";
 
 import { loginSchema } from "../auth/loginSchema.js";
 import type { Perfil } from "../auth/users.js";
@@ -605,3 +606,35 @@ medicosRouter.delete(
 
 );
 
+
+/** Impressão do médico (cabeçalho da clínica ou papel timbrado) — também ajustável pelo próprio no atendimento. */
+function medicoExiste(id: number): boolean {
+  return Boolean(getDb().prepare(`SELECT 1 FROM usuarios WHERE id = ? AND perfil = 'medico'`).get(id));
+}
+
+medicosRouter.get(
+  "/:id/impressao",
+  requireModulo("usuarios", "clinica"),
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!medicoExiste(id)) {
+      res.status(404).json({ error: "Médico não encontrado" });
+      return;
+    }
+    res.json(lerImpressao(id));
+  }),
+);
+
+medicosRouter.put(
+  "/:id/impressao",
+  requireModulo("usuarios", "clinica"),
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!medicoExiste(id)) {
+      res.status(404).json({ error: "Médico não encontrado" });
+      return;
+    }
+    salvarImpressao(id, impressaoSchema.parse(req.body));
+    res.json(lerImpressao(id));
+  }),
+);

@@ -18,6 +18,8 @@ export type ConfigWhatsApp = {
   template_confirmacao: string | null;
   hora_fixa_ativa: number;
   hora_fixa_mensagem: string | null;
+  /** Jornada da tarde (agendamentos a partir de 12:00). NULL = usa o da manhã. */
+  hora_fixa_tarde: string | null;
 };
 
 export const TEMPLATE_PADRAO =
@@ -44,7 +46,10 @@ export function horaNaMensagemConfirmacao(
   horaAgenda: string,
 ): string {
   if (cfg.hora_fixa_ativa) {
-    const fixa = String(cfg.hora_fixa_mensagem ?? "").trim();
+    const manha = String(cfg.hora_fixa_mensagem ?? "").trim();
+    const tarde = String(cfg.hora_fixa_tarde ?? "").trim();
+    const ehTarde = horaAgenda >= "12:00";
+    const fixa = ehTarde && tarde ? tarde : manha;
     if (fixa) return fixa;
   }
   return horaAgenda;

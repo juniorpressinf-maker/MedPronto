@@ -12,6 +12,7 @@ export const FICHA_TIPOS_CAMPO = [
   "escolha",
   "cid",
   "retorno",
+  "texto_formatado",
 ] as const;
 
 export type FichaCampoTipo = (typeof FICHA_TIPOS_CAMPO)[number];
@@ -36,6 +37,7 @@ export const FICHA_TIPO_LABELS: Record<FichaCampoTipo, string> = {
   escolha: "Escolha (uma opção)",
   cid: "CID-10",
   retorno: "Retorno (dias)",
+  texto_formatado: "Texto formatado (editor)",
 };
 
 const ID_RE = /^[a-z][a-z0-9_]{0,63}$/;

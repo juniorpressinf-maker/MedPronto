@@ -34,6 +34,11 @@ export function errorHandler(
     });
     return;
   }
+  // Gatilhos de integridade (RAISE ABORT): mensagem já é em português para o usuário.
+  if (sqliteErr.code === "SQLITE_CONSTRAINT_TRIGGER" && sqliteErr.message) {
+    res.status(409).json({ error: sqliteErr.message });
+    return;
+  }
   if (sqliteErr.message?.includes("no column named")) {
     res.status(500).json({
       error:

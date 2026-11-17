@@ -1,11 +1,11 @@
 import type { LucideIcon } from "lucide-react";
 import {
   Calendar,
+  FileClock,
+  FolderOpen,
   LayoutDashboard,
   Settings,
   Stethoscope,
-  UserRound,
-  Users,
   Wallet,
 } from "lucide-react";
 
@@ -18,7 +18,7 @@ export type NavItem = {
   children?: NavItem[];
 };
 
-/** Menu principal: cada item com `path` abre a rotina direto. Só Configurações usa `children`. */
+/** Menu principal: cada item com `path` abre a rotina direto. Cadastros e Configurações usam `children`. */
 export const navigation: NavItem[] = [
   { label: "Dashboard", path: "/", icon: LayoutDashboard },
   {
@@ -28,16 +28,16 @@ export const navigation: NavItem[] = [
     modulo: ["fila_medico", "fila_recepcao"],
   },
   {
+    label: "Laudos pendentes",
+    path: "/medico/laudos-pendentes",
+    icon: FileClock,
+    modulo: ["fila_medico", "fila_recepcao", "exames_anexos"],
+  },
+  {
     label: "Agenda",
     path: "/agenda",
     icon: Calendar,
     modulo: ["agenda", "fila_recepcao"],
-  },
-  {
-    label: "Pacientes",
-    path: "/pacientes",
-    icon: Users,
-    modulo: "pacientes",
   },
   {
     label: "Cobrança",
@@ -46,10 +46,17 @@ export const navigation: NavItem[] = [
     modulo: "cobranca",
   },
   {
-    label: "Médicos",
-    path: "/medicos",
-    icon: UserRound,
-    modulo: ["usuarios", "clinica"],
+    label: "Cadastros",
+    icon: FolderOpen,
+    children: [
+      { label: "Pacientes", path: "/pacientes", modulo: "pacientes" },
+      { label: "Médicos", path: "/medicos", modulo: ["usuarios", "clinica"] },
+      {
+        label: "Medicamentos/Exames",
+        path: "/cadastros/medicamentos-exames",
+        modulo: ["fichas_config", "fichas_medico"],
+      },
+    ],
   },
   {
     label: "Configurações",

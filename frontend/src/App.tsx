@@ -9,13 +9,15 @@ import { ClinicaBrandingProvider } from "./lib/clinicaBrandingContext";
 import { MessageBoxProvider } from "./lib/messageBoxContext";
 import { AuditoriaPage } from "./pages/AuditoriaPage";
 import { AdmissionalFormPage } from "./pages/AdmissionalFormPage";
-import { AgendaPage } from "./pages/AgendaPage";
+import { AgendaGradePage } from "./pages/agenda/AgendaGradePage";
 import { AtendimentoPage } from "./pages/AtendimentoPage";
 import { BackupPage } from "./pages/BackupPage";
 import { ClinicaPage } from "./pages/ClinicaPage";
 import { ClinicaSetupPage } from "./pages/ClinicaSetupPage";
 import { FichasClinicasPage } from "./pages/FichasClinicasPage";
+import { CatalogoNomesPage } from "./pages/CatalogoNomesPage";
 import { FilaMedicoPage } from "./pages/FilaMedicoPage";
+import { LaudosPendentesPage } from "./pages/LaudosPendentesPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LicencaPage } from "./pages/LicencaPage";
 import { LoginPage } from "./pages/LoginPage";
@@ -105,6 +107,14 @@ function AppRoutes() {
           }
         />
         <Route
+          path="medico/laudos-pendentes"
+          element={
+            <ModuloGuard modulo={["fila_medico", "fila_recepcao", "exames_anexos"]}>
+              <LaudosPendentesPage />
+            </ModuloGuard>
+          }
+        />
+        <Route
           path="medico/atendimento/:id"
           element={
             <ModuloGuard modulo={["prontuario_escrever", "prontuario_ler", "fila_medico"]}>
@@ -112,14 +122,17 @@ function AppRoutes() {
             </ModuloGuard>
           }
         />
+        {/* /agenda é a Agenda Nova (a antiga foi removida na A8). */}
         <Route
           path="agenda"
           element={
             <ModuloGuard modulo={["agenda", "fila_recepcao"]}>
-              <AgendaPage />
+              <AgendaGradePage />
             </ModuloGuard>
           }
         />
+        <Route path="agenda-classica" element={<Navigate to="/agenda" replace />} />
+        <Route path="agenda-nova" element={<Navigate to="/agenda" replace />} />
         <Route
           path="pacientes"
           element={
@@ -246,6 +259,14 @@ function AppRoutes() {
           element={
             <ModuloGuard modulo={["fichas_config", "fichas_medico"]}>
               <FichasClinicasPage destino="aso" />
+            </ModuloGuard>
+          }
+        />
+        <Route
+          path="cadastros/medicamentos-exames"
+          element={
+            <ModuloGuard modulo={["fichas_config", "fichas_medico"]}>
+              <CatalogoNomesPage />
             </ModuloGuard>
           }
         />

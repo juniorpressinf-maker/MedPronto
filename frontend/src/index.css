@@ -5720,3 +5720,399 @@ textarea.legacy-input {
   }
 }
 
+
+/* Sala de espera: filtros Médico e Data maiores e na mesma altura. */
+.fila-filtro-campo {
+  height: 2.6rem;
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 0 0.75rem;
+}
+
+/* Cadastro com abas (ex.: paciente: Dados | Históricos) — cada aba ocupa a área central. */
+.cadastro-form__abas {
+  padding: 0.75rem 1rem 0;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+/* ===== Receber conta (janela de recebimento) ===== */
+.rcb {
+  width: min(680px, calc(100vw - 32px));
+  max-width: 680px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.rcb__topo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.rcb__titulo {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+.rcb__resumo {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+}
+.rcb__card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+.rcb__card-rotulo {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 600;
+}
+.rcb__card-valor {
+  font-size: 1.35rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rcb__card--falta {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+.rcb__card--falta .rcb__card-valor {
+  color: #b45309;
+}
+.rcb__card--ok {
+  border-color: #16a34a;
+  background: #f0fdf4;
+}
+.rcb__card--ok .rcb__card-valor {
+  color: #15803d;
+}
+.rcb__desconto {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.rcb__campo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1 1 14rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.rcb__campo--curto {
+  flex: 0 0 9rem;
+}
+.rcb__passo {
+  margin: 0 0 -0.4rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.rcb__formas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.5rem;
+}
+.rcb__forma {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 3rem;
+  padding: 0.55rem 0.75rem;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text-2);
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.rcb__forma:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.rcb__forma:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.rcb__forma--ativa {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.rcb__forma--ativa:hover:not(:disabled) {
+  background: var(--accent-2);
+}
+.rcb__forma-icone {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+}
+.rcb__forma-nome {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.2;
+}
+.rcb__tecla {
+  flex: 0 0 auto;
+  min-width: 1.5rem;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 0.75rem;
+  text-align: center;
+  opacity: 0.7;
+}
+.rcb__lancar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.rcb__lancar-forma {
+  flex: 0 0 9rem;
+  font-weight: 700;
+}
+.rcb__valor {
+  flex: 1 1 12rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.85rem;
+  height: 3.25rem;
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  background: #fff;
+}
+.rcb__valor span {
+  color: var(--muted);
+  font-weight: 600;
+}
+.rcb__valor input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  text-align: right;
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.rcb__valor input::selection {
+  background: var(--accent);
+  color: #fff;
+}
+.rcb__valor:has(input:disabled) {
+  border-color: var(--border);
+  opacity: 0.6;
+}
+.rcb__lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.rcb__item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.85rem;
+  border-top: 1px solid var(--border);
+}
+.rcb__item:first-child {
+  border-top: 0;
+}
+.rcb__item-icone {
+  width: 1.1rem;
+  height: 1.1rem;
+  color: var(--accent);
+}
+.rcb__item-nome {
+  flex: 1 1 auto;
+  font-weight: 600;
+}
+.rcb__item-valor {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.05rem;
+}
+.rcb__remover {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #b91c1c;
+  cursor: pointer;
+}
+.rcb__remover:hover:not(:disabled) {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+.rcb__erro {
+  width: 100%;
+  margin: 0;
+  font-size: 0.85rem;
+  color: #b91c1c;
+}
+.rcb__vazio {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.rcb__rodape {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+@media (max-width: 560px) {
+  .rcb__resumo {
+    grid-template-columns: 1fr;
+  }
+  .rcb__lancar-forma {
+    flex-basis: 100%;
+  }
+}
+.rcb__rodape {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+.rcb__rodape .btn {
+  width: 100%%;
+  min-height: 3rem;
+  justify-content: center;
+}
+
+/* Receber conta — formas em 2 colunas; Lançar no fim da linha do valor. */
+.rcb__formas {
+  grid-template-columns: repeat(2, 1fr);
+}
+.rcb__lancar {
+  display: block;
+}
+.rcb__valor {
+  padding-right: 0.35rem;
+}
+.rcb__valor-forma {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-2) !important;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.rcb__valor-btn {
+  flex: 0 0 auto;
+  height: 2.5rem;
+  padding: 0 1.1rem;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+.rcb__valor-btn:hover:not(:disabled) {
+  background: var(--accent-2);
+}
+.rcb__valor-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Mensagens com várias linhas quebram linha. */
+.msg-box__text {
+  white-space: pre-line;
+}
+
+/* Linha de total das tabelas de relatório. */
+.relatorio-total td {
+  font-weight: 700;
+  border-top: 2px solid var(--accent);
+  background: var(--accent-soft);
+}
+
+.rcb__aviso {
+  margin: 0;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid #f59e0b;
+  border-radius: 10px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.85rem;
+}
+
+/* Botão verde desativado (ex.: "✓ Paciente confirmou" já registrado): continua verde. */
+.btn.btn-cobranca-paga:disabled {
+  background: #15803d;
+  color: #fff;
+  border-color: transparent;
+  cursor: default;
+}
+
+/* Pastas suspensas (abas em forma de pasta) — a aba ativa se funde ao cartão abaixo. */
+.pasta-abas {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0 0.75rem;
+  margin-bottom: -1px;
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+}
+
+.pasta-aba {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 1.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  background: linear-gradient(180deg, #eef2f7 0%, #dde5ef 100%);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transform: translateY(3px);
+  transition: transform 0.12s, background 0.12s;
+}
+
+.pasta-aba:hover {
+  transform: translateY(1px);
+  color: var(--text, inherit);
+}
+
+.pasta-aba--ativa {
+  background: var(--panel, #fff);
+  color: var(--accent, #2563eb);
+  border-color: var(--border);
+  border-top: 3px solid var(--accent, #2563eb);
+  transform: none;
+  padding-bottom: 0.6rem;
+}
+
+.pasta-conteudo {
+  border-top-left-radius: 0;
+}

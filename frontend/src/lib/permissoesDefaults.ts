@@ -4,6 +4,7 @@ import type { Perfil } from "./api";
 export const PERMISSOES_PADRAO: Record<Perfil, string[]> = {
   secretaria: [
     "agenda",
+    "agenda_config",
     "pacientes",
     "fila_recepcao",
     "exames_anexos",
@@ -13,6 +14,7 @@ export const PERMISSOES_PADRAO: Record<Perfil, string[]> = {
     "cobranca",
     "cobranca_relatorios",
     "cobranca_config",
+    "chat_interno",
   ],
   medico: [
     "fila_medico",
@@ -23,10 +25,13 @@ export const PERMISSOES_PADRAO: Record<Perfil, string[]> = {
     "admissional",
     "agenda",
     "pacientes",
+    "fichas_medico",
     "cobranca_solicitar",
+    "chat_interno",
   ],
   admin: [
     "agenda",
+    "agenda_config",
     "pacientes",
     "fila_recepcao",
     "exames_anexos",
@@ -43,10 +48,13 @@ export const PERMISSOES_PADRAO: Record<Perfil, string[]> = {
     "licenca",
     "whatsapp",
     "remoto",
+    "fichas_config",
+    "fichas_medico",
     "cobranca",
     "cobranca_solicitar",
     "cobranca_config",
     "cobranca_relatorios",
+    "chat_interno",
   ],
 };
 

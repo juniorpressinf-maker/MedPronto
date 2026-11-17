@@ -1,5 +1,6 @@
 import type { Database } from "better-sqlite3";
 import { getDb } from "../db/index.js";
+import { agoraLocalSql } from "../lib/diasUteis.js";
 import { convenioExigeGuia, CONVENIO_PARTICULAR_ID } from "./cobrancaCadastros.js";
 import { logAcesso } from "./logAcesso.js";
 import {
@@ -59,6 +60,18 @@ export function registrarPagamento(
 
   const conta = getContaRow(contaId, db);
   assertContaRecebePagamento(conta);
+
+  // B2 [8]: não aceita pagar mais do que o saldo (evita saldo negativo e arrecadado inflado).
+  const saldo = obterContaDetalhe(contaId, db).saldo_pendente_centavos;
+  if (dados.valor_centavos > saldo) {
+    const fmt = (c: number) =>
+      (c / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    throw new Error(
+      saldo > 0
+        ? `Valor maior que o saldo pendente (${fmt(saldo)})`
+        : "Esta conta não tem saldo pendente",
+    );
+  }
 
   db.prepare(
     `INSERT INTO conta_pagamentos (conta_id, forma, valor_centavos, registrado_por, observacao)
@@ -142,7 +155,7 @@ export function fecharConta(
 
   const detalhe = obterContaDetalhe(contaId, db);
   const modo = dados.modo ?? "normal";
-  const agora = new Date().toISOString().slice(0, 19).replace("T", " ");
+  const agora = agoraLocalSql();
   let status: string;
 
   assertContaTemItensCobraveis(contaId, db);
@@ -208,6 +221,8 @@ export function receberConta(
     valor_desconto_centavos: number;
     motivo_desconto: string | null;
     forma?: FormaPagamento;
+    /** Vários pagamentos (ex.: parte no PIX, parte no cartão). A soma tem de fechar o saldo. */
+    pagamentos?: { forma: FormaPagamento; valor_centavos: number }[];
   },
   usuarioId: number,
   db: Database = getDb(),
@@ -224,7 +239,17 @@ export function receberConta(
     );
     const detalhe = obterContaDetalhe(contaId, db);
     const saldo = detalhe.saldo_pendente_centavos;
-    if (saldo > 0) {
+    if (saldo > 0 && dados.pagamentos?.length) {
+      const soma = dados.pagamentos.reduce((t, p) => t + p.valor_centavos, 0);
+      if (soma !== saldo) {
+        throw new Error(
+          `A soma dos pagamentos (R$ ${(soma / 100).toFixed(2)}) precisa ser igual ao valor a receber (R$ ${(saldo / 100).toFixed(2)})`,
+        );
+      }
+      for (const p of dados.pagamentos) {
+        registrarPagamento(contaId, { forma: p.forma, valor_centavos: p.valor_centavos }, usuarioId, db);
+      }
+    } else if (saldo > 0) {
       if (!dados.forma) {
         throw new Error("Forma de pagamento obrigatória");
       }
@@ -236,6 +261,117 @@ export function receberConta(
       );
     }
     return fecharConta(contaId, { modo: "normal" }, usuarioId, db);
+  })();
+}
+
+/**
+ * B2 [8] — estorno de pagamento lançado errado.
+ * Só na conta em aberto (reabra antes) e só pagamento do PRÓPRIO DIA:
+ * estornar dia anterior mudaria um caixa já conferido.
+ * Repasse de convênio não se estorna por aqui.
+ */
+export function estornarPagamento(
+  contaId: number,
+  pagamentoId: number,
+  motivo: string,
+  usuarioId: number,
+  db: Database = getDb(),
+): ContaDetalhe {
+  const motivoLimpo = motivo?.trim();
+  if (!motivoLimpo || motivoLimpo.length < 3) {
+    throw new Error("Informe o motivo do estorno");
+  }
+  return db.transaction(() => {
+    const conta = getContaRow(contaId, db);
+    if (conta.status !== "em_aberto" || conta.fechada_em) {
+      throw new Error("Reabra a conta antes de estornar um pagamento");
+    }
+    const pag = db
+      .prepare(
+        `SELECT id, forma, valor_centavos, registrado_em, registrado_por,
+                date(registrado_em) = date('now', 'localtime') AS hoje
+         FROM conta_pagamentos WHERE id = ? AND conta_id = ?`,
+      )
+      .get(pagamentoId, contaId) as
+      | {
+          id: number;
+          forma: string;
+          valor_centavos: number;
+          registrado_em: string;
+          registrado_por: number | null;
+          hoje: number;
+        }
+      | undefined;
+    if (!pag) throw new Error("Pagamento não encontrado nesta conta");
+    if (pag.forma === "repasse_convenio") {
+      throw new Error("Recebimento de convênio não pode ser estornado por aqui");
+    }
+    if (!pag.hoje) {
+      throw new Error("Só é possível estornar pagamento registrado hoje (o caixa de outro dia já foi fechado)");
+    }
+    db.prepare(`DELETE FROM conta_pagamentos WHERE id = ?`).run(pag.id);
+    logAcesso({
+      usuarioId,
+      pacienteId: conta.paciente_id,
+      acao: "cobranca_estorno",
+      detalhe: `conta=${contaId} pagamento=${pag.id} forma=${pag.forma} valor=${pag.valor_centavos} registrado_em=${pag.registrado_em} registrado_por=${pag.registrado_por ?? ""} motivo=${motivoLimpo.slice(0, 300)}`,
+    });
+    return obterContaDetalhe(contaId, db);
+  })();
+}
+
+/**
+ * B2 [5] — cancelar conta (lançada por engano).
+ * Só conta em aberto e sem pagamento. Conta de horário só se o horário já foi
+ * cancelado ou marcado como falta (cancelar o horário na agenda já cancela a conta vazia).
+ */
+export function cancelarConta(
+  contaId: number,
+  motivo: string,
+  usuarioId: number,
+  db: Database = getDb(),
+): ContaDetalhe {
+  const motivoLimpo = motivo?.trim();
+  if (!motivoLimpo || motivoLimpo.length < 3) {
+    throw new Error("Informe o motivo do cancelamento");
+  }
+  return db.transaction(() => {
+    const conta = getContaRow(contaId, db);
+    if (conta.status !== "em_aberto" || conta.fechada_em) {
+      throw new Error("Só é possível cancelar conta em aberto");
+    }
+    const pagos = (
+      db
+        .prepare(`SELECT COUNT(*) AS qtd FROM conta_pagamentos WHERE conta_id = ?`)
+        .get(contaId) as { qtd: number }
+    ).qtd;
+    if (pagos > 0) {
+      throw new Error("Conta com pagamento não pode ser cancelada — estorne os pagamentos antes");
+    }
+    if (conta.agendamento_id) {
+      const ag = db
+        .prepare(`SELECT status FROM agendamentos WHERE id = ?`)
+        .get(conta.agendamento_id) as { status: string } | undefined;
+      if (ag && !["cancelado", "nao_compareceu"].includes(ag.status)) {
+        throw new Error(
+          "Esta conta é de um horário da agenda. Cancele ou marque falta no horário — a conta vazia é cancelada junto.",
+        );
+      }
+    }
+    const obs = [conta.observacao?.trim(), `Cancelada: ${motivoLimpo}`]
+      .filter(Boolean)
+      .join(" | ");
+    db.prepare(
+      `UPDATE contas_atendimento SET status = 'cancelada', observacao = ?
+       WHERE id = ? AND status = 'em_aberto'`,
+    ).run(obs.slice(0, 2000), contaId);
+    logAcesso({
+      usuarioId,
+      pacienteId: conta.paciente_id,
+      acao: "cobranca_cancelar_conta",
+      detalhe: `conta=${contaId} motivo=${motivoLimpo.slice(0, 300)}`,
+    });
+    return obterContaDetalhe(contaId, db);
   })();
 }
 

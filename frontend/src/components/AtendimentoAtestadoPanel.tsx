@@ -6,13 +6,54 @@ import { CidAutocomplete } from "./CidAutocomplete";
 
 import { FormActions } from "./FormActions";
 
-import { ApiError, api, type Atestado } from "../lib/api";
+import { ApiError, PdfCancelado, api, type Atestado } from "../lib/api";
 
-import { isFormDirty, snapshotForm } from "../lib/formDirty";
+import { snapshotForm } from "../lib/formDirty";
 import { upperPrompt } from "../lib/upperPrompt";
+import { useAutoSalvar } from "../lib/useAutoSalvar";
 import { useMessageBox } from "../lib/messageBoxContext";
+import { focarCampoInicial } from "../lib/focoInicial";
 
-
+/**
+ * Prévia ao vivo do atestado — mesmo texto e ordem do PDF
+ * (backend/src/services/documentPdf.ts → gerarPdfAtestado). Mudou lá, mude aqui.
+ */
+function AtestadoPrevia({ pacienteNome, form }: { pacienteNome: string; form: Atestado }) {
+  const dias = form.dias_afastamento;
+  const cid = [form.cid_codigo, form.cid_descricao].filter(Boolean).join(" — ");
+  const texto = form.texto_livre?.trim();
+  const vazio = !(dias != null && dias > 0) && !cid && !texto;
+  return (
+    <aside className="atestado-previa" aria-label="Prévia do atestado">
+      <p className="atestado-previa__rotulo">Prévia — como vai sair impresso</p>
+      <div className="atestado-previa__folha">
+        <h4 className="atestado-previa__titulo">ATESTADO MÉDICO</h4>
+        <p className="atestado-previa__cab">
+          Paciente: {pacienteNome}
+          <br />
+          Data: {new Date().toLocaleDateString("pt-BR")}
+        </p>
+        <hr />
+        {dias != null && dias > 0 ? (
+          <p>
+            Atesto para os devidos fins que o(a) paciente acima identificado(a) necessita de afastamento de
+            suas atividades por <strong>{dias} dia(s)</strong>.
+          </p>
+        ) : null}
+        {cid ? <p>CID: {cid}</p> : null}
+        {texto ? <p className="whitespace-pre-wrap">{texto}</p> : null}
+        {vazio ? (
+          <p className="atestado-previa__vazio">Preencha os dias, o CID ou o texto ao lado.</p>
+        ) : null}
+        <div className="atestado-previa__assinatura">
+          _______________________________
+          <br />
+          Assinatura e carimbo do médico
+        </div>
+      </div>
+    </aside>
+  );
+}
 
 type Props = {
   prontuarioId: number;
@@ -98,6 +139,7 @@ export function AtendimentoAtestadoPanel({
         setForm(next);
         setBaseline(snapshotAtestado(next));
         setSaved(Boolean(r.atestado?.id));
+        focarCampoInicial();
       } catch (e) {
         if (!active) return;
         void msg.error(e instanceof ApiError ? e.message : "Erro ao carregar atestado");
@@ -113,7 +155,7 @@ export function AtendimentoAtestadoPanel({
 
   const dirty = useMemo(
 
-    () => isFormDirty(snapshotAtestado(form), baseline),
+    () => snapshotAtestado(form) !== baseline,
 
     [form, baseline],
 
@@ -121,26 +163,27 @@ export function AtendimentoAtestadoPanel({
 
 
 
-  const salvar = async () => {
+  const salvar = async (silencioso = false): Promise<boolean> => {
 
-    setSaving(true);
+    if (!silencioso) setSaving(true);
 
     try {
 
       await api.atestadoSave(prontuarioId, form);
       setBaseline(snapshotAtestado(form));
       setSaved(true);
-      void msg.success("Atestado salvo");
+      if (!silencioso) void msg.success("Atestado salvo");
+      return true;
 
     } catch (e) {
 
       if (e instanceof ApiError && e.status === 409) {
-        void msg.warning(e.message);
+        if (!silencioso) void msg.warning(e.message);
         onConsultaEncerrada?.();
-        return;
+        return false;
       }
 
-      void msg.error(e instanceof ApiError ? e.message : "Erro ao salvar");
+      if (!silencioso) void msg.error(e instanceof ApiError ? e.message : "Erro ao salvar");
 
     } finally {
 
@@ -148,22 +191,32 @@ export function AtendimentoAtestadoPanel({
 
     }
 
+    return false;
   };
 
-
+  // Salva sozinho (1,5 s após digitar e ao sair); o botão Salvar vira indicador.
+  const indicadorSalvo = useAutoSalvar({
+    chave: JSON.stringify(snapshotAtestado(form)),
+    dirty,
+    desligado: somenteLeitura,
+    salvar,
+  });
 
   const imprimir = async () => {
-
     try {
-
-      await api.atestadoPdf(prontuarioId);
-
+      // Com alteração não salva: salva antes (o PDF sai do que está gravado).
+      await api.atestadoPdf(
+        prontuarioId,
+        dirty
+          ? async () => {
+              if (!(await salvar())) throw new PdfCancelado();
+            }
+          : undefined,
+      );
     } catch (e) {
-
+      if (e instanceof PdfCancelado) return;
       void msg.error(e instanceof ApiError ? e.message : "Erro ao gerar PDF");
-
     }
-
   };
 
 
@@ -174,7 +227,8 @@ export function AtendimentoAtestadoPanel({
 
       <AtendimentoCardTitulo titulo="Atestado médico" pacienteNome={pacienteNome} />
 
-      <div className="grid gap-3 max-w-md">
+      <div className="atestado-panel__corpo">
+      <div className="grid gap-3 content-start">
 
         <div>
 
@@ -185,6 +239,7 @@ export function AtendimentoAtestadoPanel({
             min={0}
             max={365}
             className="legacy-input w-32 mt-1"
+            data-foco-inicial=""
             value={form.dias_afastamento ?? ""}
             readOnly={somenteLeitura}
             onChange={(e) =>
@@ -217,12 +272,15 @@ export function AtendimentoAtestadoPanel({
           />
         </div>
       </div>
+      <AtestadoPrevia pacienteNome={pacienteNome} form={form} />
+      </div>
       <FormActions
         saving={saving}
         dirty={dirty}
         saved={saved}
         saveLabel="Salvar atestado"
         onSave={() => void salvar()}
+        indicador={indicadorSalvo}
         onBack={onVoltar}
         backLabel="Voltar ao prontuário"
         somenteLeitura={somenteLeitura}

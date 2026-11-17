@@ -42,6 +42,10 @@ function ctxFromRow(row: NonNullable<ReturnType<typeof getDocumentoContext>>) {
     paciente_nasc: row.paciente_nasc,
     paciente_cpf: row.paciente_cpf,
     data_emissao: row.data_atendimento,
+    // Preferência do médico do prontuário: papel timbrado = sem cabeçalho da clínica.
+    timbrado: row.impressao_timbrado
+      ? { topo_mm: row.timbrado_topo_mm, rodape_mm: row.timbrado_rodape_mm }
+      : null,
   };
 }
 

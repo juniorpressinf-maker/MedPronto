@@ -12,7 +12,9 @@
         --text: #0f172a;
         --muted: #475569;
         --accent: #1d4ed8;
+        --ok: #16a34a;
         --panel: #ffffff;
+        --line: #e2e8f0;
         --glow-1: rgba(29, 78, 216, 0.14);
         --glow-2: rgba(30, 64, 175, 0.1);
       }
@@ -43,54 +45,110 @@
       }
 
       .card {
-        width: min(420px, 100%);
-        text-align: center;
+        width: min(460px, 100%);
         background: var(--panel);
         border: 1px solid #94a8c4;
         border-radius: 20px;
-        padding: 40px 32px 36px;
+        padding: 36px 32px 28px;
         box-shadow: 0 10px 32px rgba(12, 22, 40, 0.14);
+      }
+
+      .head {
+        text-align: center;
       }
 
       .logo {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 72px;
-        height: 72px;
+        width: 64px;
+        height: 64px;
         border-radius: 16px;
         background: var(--accent);
         color: #fff;
-        margin-bottom: 20px;
+        margin-bottom: 14px;
         box-shadow: 0 4px 14px rgba(29, 78, 216, 0.35);
       }
 
       .logo svg {
-        width: 40px;
-        height: 40px;
+        width: 36px;
+        height: 36px;
       }
 
       h1 {
-        margin: 0 0 6px;
-        font-size: 1.65rem;
+        margin: 0 0 4px;
+        font-size: 1.6rem;
         font-weight: 700;
         letter-spacing: 0.02em;
       }
 
       .subtitle {
-        margin: 0 0 28px;
+        margin: 0 0 22px;
         color: var(--muted);
         font-size: 0.9rem;
       }
 
-      .spinner {
-        width: 44px;
-        height: 44px;
-        margin: 0 auto 22px;
-        border: 3px solid #dbeafe;
-        border-top-color: var(--accent);
+      .steps {
+        list-style: none;
+        margin: 0 0 18px;
+        padding: 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .steps li {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 9px 4px;
+        border-bottom: 1px solid var(--line);
+        font-size: 0.92rem;
+        color: #94a3b8;
+        transition: color 0.2s ease;
+      }
+
+      .steps .ico {
+        flex: none;
+        width: 22px;
+        height: 22px;
         border-radius: 50%;
+        border: 2px solid #cbd5e1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        font-weight: 700;
+      }
+
+      .steps li.done {
+        color: var(--text);
+      }
+
+      .steps li.done .ico {
+        border-color: var(--ok);
+        background: var(--ok);
+        color: #fff;
+      }
+
+      .steps li.active {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      .steps li.active .ico {
+        border-color: #dbeafe;
+        border-top-color: var(--accent);
         animation: spin 0.9s linear infinite;
+      }
+
+      .steps li.fail {
+        color: #991b1b;
+        font-weight: 600;
+      }
+
+      .steps li.fail .ico {
+        border-color: #dc2626;
+        background: #dc2626;
+        color: #fff;
       }
 
       @keyframes spin {
@@ -100,10 +158,11 @@
       }
 
       .message {
-        min-height: 3.2em;
+        min-height: 2.8em;
         margin: 0;
-        font-size: 1rem;
-        line-height: 1.55;
+        font-size: 0.95rem;
+        line-height: 1.5;
+        text-align: center;
         color: var(--text);
         transition: opacity 0.25s ease;
       }
@@ -112,43 +171,45 @@
         opacity: 0.45;
       }
 
-      .hint {
-        margin: 18px 0 0;
+      .foot {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 12px;
         font-size: 0.78rem;
         color: var(--muted);
       }
 
       .error-box {
         display: none;
-        margin-top: 20px;
+        margin-top: 16px;
         padding: 14px 16px;
         background: #fef2f2;
         border: 1px solid #fca5a5;
         border-radius: 10px;
-        text-align: left;
       }
 
       .error-box p {
-        margin: 0 0 10px;
-        font-size: 0.82rem;
+        margin: 0 0 8px;
+        font-size: 0.85rem;
         color: #991b1b;
         line-height: 1.5;
       }
 
-      .error-box .status-line {
-        margin: 0 0 14px;
+      .error-box .detail {
         font-size: 0.78rem;
         color: #7f1d1d;
-        font-family: monospace;
-        word-break: break-all;
+        font-family: Consolas, monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
       }
 
       .btn {
         width: 100%;
-        padding: 8px 12px;
+        margin-top: 6px;
+        padding: 9px 12px;
         border: none;
         border-radius: 8px;
-        font-size: 0.82rem;
+        font-size: 0.85rem;
         font-weight: 600;
         cursor: pointer;
         background: var(--accent);
@@ -163,54 +224,70 @@
   <body>
     <div class="wrap">
       <div class="card">
-        <div class="logo" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-            <path d="M12 6v12" />
-            <path d="M6 12h12" />
-            <circle cx="12" cy="12" r="9" />
-          </svg>
+        <div class="head">
+          <div class="logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M12 6v12" />
+              <path d="M6 12h12" />
+              <circle cx="12" cy="12" r="9" />
+            </svg>
+          </div>
+          <h1>MedPronto</h1>
+          <p class="subtitle">Consultório médico</p>
         </div>
-        <h1>MedPronto</h1>
-        <p class="subtitle">Consultório médico</p>
-        <div class="spinner" role="status" aria-label="Carregando"></div>
-        <p class="message" id="msg">Preparando sistema…</p>
-        <p class="hint" id="hint">Aguarde — a tela de login abrirá em outra janela.</p>
+
+        <ul class="steps" id="steps">
+          <li data-step="1"><span class="ico"></span>Preparando o ambiente</li>
+          <li data-step="2"><span class="ico"></span>Verificando componentes</li>
+          <li data-step="3"><span class="ico"></span>Verificando atualizações</li>
+          <li data-step="4"><span class="ico"></span>Ligando o servidor</li>
+          <li data-step="5"><span class="ico"></span>Abrindo a tela de login</li>
+        </ul>
+
+        <p class="message" id="msg">Iniciando MedPronto…</p>
+
+        <div class="foot">
+          <span id="hint">Aguarde — a tela de login abrirá aqui mesmo.</span>
+          <span id="clock">0s</span>
+        </div>
 
         <div class="error-box" id="err">
-          <p>O sistema demorou mais que o esperado para abrir.</p>
-          <p class="status-line" id="err-status"></p>
-          <button class="btn" type="button" onclick="window.location.reload()">Tentar novamente</button>
+          <p id="err-title">Não foi possível abrir o MedPronto.</p>
+          <p class="detail" id="err-detail"></p>
+          <p>
+            Feche esta janela e abra o <b>MedPronto</b> de novo pelo atalho.
+            Se o problema continuar, chame o suporte.
+          </p>
+          <button class="btn" type="button" onclick="window.location.reload()">
+            Verificar novamente
+          </button>
         </div>
       </div>
     </div>
     <script>
       (function () {
         var API = "http://127.0.0.1:3021";
-        var TIMEOUT_MS = 3 * 60 * 1000;
+        var LOGIN = "http://127.0.0.1:3021/login?reabrir=1";
+        // Escrito pelo launcher a cada passo — lido via <script> (funciona em file://, antes da API subir)
+        var STATUS_JS = "../data/startup-status.js";
+        var STALL_MS = 4 * 60 * 1000; // sem nenhuma mudança de status
+        var NO_STATUS_MS = 25 * 1000; // launcher nunca escreveu status → modo só-API
 
         var msgEl = document.getElementById("msg");
         var hintEl = document.getElementById("hint");
+        var clockEl = document.getElementById("clock");
         var errEl = document.getElementById("err");
-        var errStatus = document.getElementById("err-status");
-        var lastMsg = "";
-        var timedOut = false;
+        var errDetail = document.getElementById("err-detail");
+        var stepEls = document.querySelectorAll("#steps li");
+
         var startedAt = Date.now();
-        var apiOkOnce = false;
+        var lastChangeAt = Date.now();
+        var lastKey = "";
+        var lastMsg = "";
+        var status = null;
+        var failed = false;
+        var redirecting = false;
         var readyStreak = 0;
-        var READY_NEEDED = 3;
-
-        var closeScheduled = false;
-
-        function scheduleClose() {
-          if (closeScheduled) return;
-          closeScheduled = true;
-          hintEl.textContent = "Fechando esta janela…";
-          setTimeout(function () {
-            try {
-              window.close();
-            } catch (e) {}
-          }, 1200);
-        }
 
         function setMessage(text) {
           if (!text || text === lastMsg) return;
@@ -222,61 +299,114 @@
           }, 120);
         }
 
-        function showError() {
-          if (timedOut) return;
-          timedOut = true;
-          document.querySelector(".spinner").style.animation = "none";
-          document.querySelector(".spinner").style.borderTopColor = "#fca5a5";
-          hintEl.style.display = "none";
-          errEl.style.display = "block";
-          errStatus.textContent = "Último status: " + (lastMsg || "desconhecido");
+        function renderSteps(current, state) {
+          for (var i = 0; i < stepEls.length; i++) {
+            var li = stepEls[i];
+            var n = Number(li.getAttribute("data-step"));
+            var ico = li.querySelector(".ico");
+            li.className = "";
+            ico.textContent = "";
+            if (n < current || (state === "ready" && n <= current)) {
+              li.className = "done";
+              ico.textContent = "✓";
+            } else if (n === current || (current === 0 && n === 1)) {
+              if (state === "error") {
+                li.className = "fail";
+                ico.textContent = "!";
+              } else {
+                li.className = "active";
+              }
+            }
+          }
         }
 
-        function poll() {
-          if (timedOut) return;
+        function showError(detail) {
+          if (failed) return;
+          failed = true;
+          renderSteps(status ? Math.max(status.step, 1) : 1, "error");
+          hintEl.textContent = "";
+          errDetail.textContent = detail || "";
+          errEl.style.display = "block";
+          setMessage("Algo deu errado na abertura.");
+        }
 
-          var elapsed = Date.now() - startedAt;
-          var apiTimeout = !apiOkOnce && elapsed > 90000;
-          if (elapsed > TIMEOUT_MS || apiTimeout) {
-            showError();
+        function loadStatus() {
+          var s = document.createElement("script");
+          s.src = STATUS_JS + "?t=" + Date.now();
+          s.onload = s.onerror = function () {
+            if (s.parentNode) s.parentNode.removeChild(s);
+            if (window.__mpStatus) applyStatus(window.__mpStatus);
+          };
+          document.head.appendChild(s);
+        }
+
+        function applyStatus(d) {
+          if (failed || redirecting) return;
+          status = d;
+          var key = d.step + "|" + d.state + "|" + d.message;
+          if (key !== lastKey) {
+            lastKey = key;
+            lastChangeAt = Date.now();
+          }
+          if (d.state === "error") {
+            showError(d.message);
             return;
           }
+          renderSteps(d.step || 0, d.state);
+          setMessage(d.message);
+        }
 
-          if (!apiOkOnce && elapsed > 30000 && elapsed < 31000) {
-            setMessage("Ainda iniciando… pode levar até 2 minutos.");
-          }
-          if (!apiOkOnce && elapsed > 75000 && elapsed < 76000) {
-            setMessage("Quase lá… aguarde mais um momento.");
-          }
+        function pollApi() {
+          if (failed || redirecting) return;
+          // Só confia na API quando o launcher já liberou (passo 4+) — antes disso
+          // pode ser o servidor antigo que ainda vai ser encerrado.
+          var launcherOk = status && (status.state === "ready" || status.step >= 4);
+          var semLauncher = !status && Date.now() - startedAt > NO_STATUS_MS;
+          if (!launcherOk && !semLauncher) return;
 
           fetch(API + "/api/startup/ready", { cache: "no-store" })
             .then(function (r) {
               return r.ok ? r.json() : null;
             })
             .then(function (d) {
-              if (!d) return;
-              apiOkOnce = true;
-              if (d.message) setMessage(d.message);
-              if (d.message && /abrindo tela de login/i.test(d.message)) {
-                scheduleClose();
-              }
+              if (!d || failed || redirecting) return;
               if (d.ready) {
                 readyStreak++;
-                if (readyStreak === 1) {
-                  setMessage("Abrindo tela de login…");
-                }
               } else {
                 readyStreak = 0;
               }
-              if (d.ready && readyStreak >= READY_NEEDED) {
-                scheduleClose();
+              if (readyStreak >= 2 && (semLauncher || status.state === "ready" || status.step >= 4)) {
+                redirecting = true;
+                renderSteps(5, "running");
+                setMessage("Abrindo a tela de login…");
+                setTimeout(function () {
+                  window.location.replace(LOGIN);
+                }, 600);
               }
             })
-            .catch(function () {});
+            .catch(function () {
+              readyStreak = 0;
+            });
         }
 
-        poll();
-        setInterval(poll, 800);
+        function tick() {
+          var sec = Math.floor((Date.now() - startedAt) / 1000);
+          clockEl.textContent = sec >= 60 ? Math.floor(sec / 60) + "min " + (sec % 60) + "s" : sec + "s";
+          if (failed || redirecting) return;
+          if (Date.now() - lastChangeAt > STALL_MS) {
+            showError("A abertura ficou parada por muito tempo. Último passo: " + (lastMsg || "desconhecido"));
+            return;
+          }
+          if (sec === 90 && !redirecting) {
+            hintEl.textContent = "Está demorando um pouco mais que o normal — aguarde.";
+          }
+          loadStatus();
+          pollApi();
+        }
+
+        renderSteps(0, "running");
+        tick();
+        setInterval(tick, 800);
       })();
     </script>
   </body>

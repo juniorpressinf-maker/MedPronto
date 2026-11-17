@@ -1056,9 +1056,214 @@
 
 .receita-panel__obs {
   flex-shrink: 0;
+  padding: 0.6rem 0.75rem 0.7rem;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent, #2563eb);
+  border-radius: 8px;
+  background: var(--panel, #fff);
+}
+
+.receita-panel__obs-titulo {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-weight: 700;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.receita-panel__obs-titulo span {
+  margin-left: 0.4rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+/* Ações (Salvar / Voltar / Imprimir) separadas das observações */
+.receita-panel > .form-actions {
+  margin-top: 0.25rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
 }
 
 .receita-panel__add {
   flex-shrink: 0;
   align-self: flex-start;
+}
+
+/* Memória de prescrição — formas que o médico já usou para o medicamento */
+.receita-panel__memoria td {
+  padding: 0.15rem 0.5rem 0.4rem;
+  border-top: 0;
+  font-size: 0.8rem;
+}
+
+.receita-panel__memoria-titulo {
+  color: var(--muted);
+  margin-right: 0.5rem;
+}
+
+.receita-panel__memoria-chip {
+  display: inline-flex;
+  align-items: center;
+  margin: 0.15rem 0.35rem 0.15rem 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  overflow: hidden;
+}
+
+.receita-panel__memoria-chip button {
+  padding: 0.1rem 0.55rem;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: inherit;
+}
+
+.receita-panel__memoria-chip button:hover {
+  background: var(--accent-soft);
+  text-decoration: underline;
+}
+
+.receita-panel__memoria-chip .receita-panel__memoria-ocultar {
+  padding: 0.1rem 0.45rem;
+  border-left: 1px solid var(--border);
+  color: var(--muted);
+}
+
+/* Sugestões de medicamento/exame — mesmo visual da busca de cliente do Estnovo;
+   os já usados ficam destacados (laranja) com selo de quantas vezes. */
+.nome-autocomplete-lista {
+  max-height: 21rem;
+  overflow: auto;
+  padding: 0.25rem 0;
+  background: var(--panel, #fff);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.nome-sugestao {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.5rem 0.85rem;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.nome-sugestao:hover {
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.nome-sugestao--sel {
+  background: var(--accent-soft);
+}
+
+.nome-sugestao__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nome-sugestao--usado {
+  background: #fff7ed;
+}
+
+.nome-sugestao--usado.nome-sugestao--sel {
+  background: #ffedd5;
+}
+
+.nome-sugestao--usado .nome-sugestao__label {
+  color: #9a3412;
+  font-weight: 600;
+}
+
+.nome-sugestao__badge {
+  flex-shrink: 0;
+  border-radius: 4px;
+  background: #ea580c;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.1rem 0.4rem;
+}
+
+/* Atestado: formulário à esquerda, prévia do papel à direita */
+.atestado-panel__corpo {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: minmax(0, 28rem) minmax(0, 1fr);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .atestado-panel__corpo {
+    grid-template-columns: 1fr;
+  }
+}
+
+.atestado-previa__rotulo {
+  margin: 0 0 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.atestado-previa__folha {
+  max-width: 34rem;
+  min-height: 22rem;
+  padding: 1.5rem 1.75rem;
+  background: #fff;
+  color: #111;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  font-family: Helvetica, Arial, sans-serif;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.atestado-previa__folha p {
+  margin: 0 0 0.7rem;
+}
+
+.atestado-previa__folha hr {
+  border: 0;
+  border-top: 1px solid #94a8c4;
+  margin: 0.6rem 0 0.9rem;
+}
+
+.atestado-previa__titulo {
+  margin: 0 0 0.5rem;
+  text-align: center;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.atestado-previa__cab {
+  font-size: 0.82rem;
+}
+
+.atestado-previa__vazio {
+  color: #888;
+  font-style: italic;
+}
+
+.atestado-previa__assinatura {
+  margin-top: 2.5rem;
+  text-align: center;
+  font-size: 0.82rem;
 }

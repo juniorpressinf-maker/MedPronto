@@ -2,6 +2,7 @@ import { Plus, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api, type CobrancaProcedimento } from "../../lib/api";
 import { useMessageBox } from "../../lib/messageBoxContext";
+import { SeletorCor } from "../../components/agenda/SeletorCor";
 import {
   MODO_CLINICO_AJUDA,
   MODO_CLINICO_LABEL,
@@ -14,7 +15,18 @@ const FORM_VAZIO = {
   nome: "",
   orientacoes_paciente: "",
   modo_clinico: "nenhum" as ModoClinico,
+  /** Agenda Nova: vazio = usa o intervalo padrão da agenda. */
+  duracao_minutos: "",
+  /** Agenda Nova: vazio = cor automática (uma ainda não usada). */
+  cor: "",
 };
+
+/** "" → null; número inteiro 5–480 → número; senão undefined (inválido). */
+function lerDuracao(v: string): number | null | undefined {
+  if (!v.trim()) return null;
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 5 && n <= 480 ? n : undefined;
+}
 
 function ultimoAtivoDoModo(
   lista: CobrancaProcedimento[],
@@ -32,6 +44,9 @@ export function CobrancaProcedimentosPage() {
   const [form, setForm] = useState(FORM_VAZIO);
   const [editId, setEditId] = useState<number | null>(null);
   const [editPreparo, setEditPreparo] = useState("");
+  /** Agenda Nova: edição da cor do procedimento (linha aberta). */
+  const [editCorId, setEditCorId] = useState<number | null>(null);
+  const [editCor, setEditCor] = useState("");
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -51,12 +66,19 @@ export function CobrancaProcedimentosPage() {
 
   const incluir = async () => {
     if (!form.nome.trim()) return;
+    const duracao = lerDuracao(form.duracao_minutos);
+    if (duracao === undefined) {
+      void msg.warning("Duração entre 5 e 480 minutos (ou deixe em branco).");
+      return;
+    }
     try {
       await api.cobrancaProcedimentoCreate({
         codigo: form.codigo.trim() || undefined,
         nome: form.nome.trim(),
         orientacoes_paciente: form.orientacoes_paciente.trim() || undefined,
         modo_clinico: form.modo_clinico,
+        duracao_minutos: duracao,
+        cor: form.cor || undefined,
       });
       setForm(FORM_VAZIO);
       void msg.success("Procedimento incluído.");
@@ -92,6 +114,37 @@ export function CobrancaProcedimentosPage() {
       await carregar();
     } catch (e) {
       void msg.error(e instanceof ApiError ? e.message : "Erro ao salvar modo");
+      await carregar();
+    }
+  };
+
+  const salvarCor = async (p: CobrancaProcedimento) => {
+    if (!editCor || editCor === (p.cor ?? "").toUpperCase()) {
+      setEditCorId(null);
+      return;
+    }
+    try {
+      await api.cobrancaProcedimentoUpdate(p.id, { cor: editCor });
+      setEditCorId(null);
+      await carregar();
+    } catch (e) {
+      void msg.error(e instanceof ApiError ? e.message : "Erro ao salvar a cor");
+    }
+  };
+
+  const salvarDuracao = async (p: CobrancaProcedimento, valor: string) => {
+    const duracao = lerDuracao(valor);
+    if (duracao === (p.duracao_minutos ?? null)) return;
+    if (duracao === undefined) {
+      void msg.warning("Duração entre 5 e 480 minutos (ou deixe em branco).");
+      await carregar();
+      return;
+    }
+    try {
+      await api.cobrancaProcedimentoUpdate(p.id, { duracao_minutos: duracao });
+      await carregar();
+    } catch (e) {
+      void msg.error(e instanceof ApiError ? e.message : "Erro ao salvar duração");
       await carregar();
     }
   };
@@ -168,6 +221,39 @@ export function CobrancaProcedimentosPage() {
               {MODO_CLINICO_AJUDA[form.modo_clinico]}
             </span>
           </label>
+          <label className="text-sm">
+            <span className="font-medium block mb-1">Duração (min)</span>
+            <input
+              className="legacy-input w-full"
+              type="number"
+              min={5}
+              max={480}
+              step={5}
+              value={form.duracao_minutos}
+              onChange={(e) => setForm((f) => ({ ...f, duracao_minutos: e.target.value }))}
+              placeholder="Do tipo"
+            />
+            <span className="text-xs text-[var(--muted)] block mt-1">
+              Tempo sugerido ao marcar (dá para mudar na hora). Em branco: intervalo padrão da agenda.
+            </span>
+          </label>
+          <div className="text-sm sm:col-span-3">
+            <span className="font-medium block mb-1">Cor na agenda</span>
+            <div className="flex flex-wrap items-center gap-3">
+              <SeletorCor valor={form.cor} onChange={(cor) => setForm((f) => ({ ...f, cor }))} />
+              {form.cor ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setForm((f) => ({ ...f, cor: "" }))}
+                >
+                  Automática
+                </button>
+              ) : (
+                <span className="text-xs text-[var(--muted)]">Automática (uma cor ainda não usada)</span>
+              )}
+            </div>
+          </div>
           <label className="text-sm sm:col-span-4">
             <span className="font-medium block mb-1">
               Orientações ao paciente (WhatsApp)
@@ -203,6 +289,8 @@ export function CobrancaProcedimentosPage() {
                   <th>Código</th>
                   <th>Nome</th>
                   <th>Modo clínico</th>
+                  <th>Cor</th>
+                  <th title="Tempo sugerido na agenda (em branco: intervalo padrão)">Duração</th>
                   <th>Orientações</th>
                   <th>Ativo</th>
                   <th className="text-right pr-5">Ações</th>
@@ -236,6 +324,57 @@ export function CobrancaProcedimentosPage() {
                         </select>
                       ) : (
                         MODO_CLINICO_LABEL[p.modo_clinico] ?? p.modo_clinico
+                      )}
+                    </td>
+                    <td>
+                      {editCorId === p.id ? (
+                        <div className="space-y-1">
+                          <SeletorCor valor={editCor} onChange={setEditCor} />
+                          <div className="flex gap-1">
+                            <button type="button" className="btn btn-primary btn-sm" onClick={() => void salvarCor(p)}>
+                              Salvar
+                            </button>
+                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditCorId(null)}>
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="agn-cor"
+                          style={{ background: p.cor ?? "var(--border)" }}
+                          title={p.ativo ? "Trocar a cor" : (p.cor ?? "")}
+                          aria-label={`Cor de ${p.nome}${p.ativo ? " — trocar" : ""}`}
+                          disabled={!p.ativo}
+                          onClick={() => {
+                            setEditCor((p.cor ?? "").toUpperCase());
+                            setEditCorId(p.id);
+                          }}
+                        />
+                      )}
+                    </td>
+                    <td>
+                      {p.ativo ? (
+                        <input
+                          key={`dur-${p.id}-${p.duracao_minutos ?? ""}`}
+                          className="legacy-input w-[5.5rem]"
+                          type="number"
+                          min={5}
+                          max={480}
+                          step={5}
+                          defaultValue={p.duracao_minutos ?? ""}
+                          placeholder="Do tipo"
+                          aria-label={`Duração de ${p.nome} em minutos`}
+                          onBlur={(e) => void salvarDuracao(p, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") e.currentTarget.blur();
+                          }}
+                        />
+                      ) : p.duracao_minutos ? (
+                        `${p.duracao_minutos} min`
+                      ) : (
+                        "—"
                       )}
                     </td>
                     <td className="text-sm max-w-[16rem] whitespace-normal">

@@ -18,6 +18,57 @@ import {
   type FichaCampoPosicao,
 } from "../services/fichasTemplate.js";
 import { validarCamposAso, garantirCamposTravadosAso } from "../admissional/asoModelo.js";
+import { dadosTemConteudo, parseDadosJson } from "../services/fichaProntuario.js";
+
+/**
+ * B3 [10]: campos removidos do modelo que já têm conteúdo em prontuário/ASO
+ * EM ANDAMENTO com este modelo (finalizados estão protegidos pelo snapshot).
+ * Retorna os rótulos que se perderiam no próximo salvar.
+ */
+function camposRemovidosEmUso(
+  fichaId: number,
+  destino: "prontuario" | "aso",
+  camposAntigos: { id: string; label: string }[],
+  idsNovos: Set<string>,
+): { rotulos: string[]; registros: number } {
+  const removidos = camposAntigos.filter((c) => !idsNovos.has(c.id));
+  if (!removidos.length) return { rotulos: [], registros: 0 };
+  const rows = (
+    destino === "aso"
+      ? getDb()
+          .prepare(
+            `SELECT dados_json FROM admissionais
+             WHERE aso_template_id = ? AND status = 'em_preenchimento'`,
+          )
+          .all(fichaId)
+      : getDb()
+          .prepare(
+            `SELECT p.dados_json FROM prontuarios p
+             LEFT JOIN agendamentos a ON a.id = p.agendamento_id
+             WHERE p.ficha_template_id = ?
+               AND p.template_snapshot_json IS NULL
+               AND (
+                 (p.retificacao_de_id IS NOT NULL AND p.retificacao_finalizada = 0)
+                 OR (p.retificacao_de_id IS NULL AND p.agendamento_id IS NOT NULL AND a.status != 'finalizado')
+               )`,
+          )
+          .all(fichaId)
+  ) as { dados_json: string | null }[];
+  const usados = new Set<string>();
+  let registros = 0;
+  for (const r of rows) {
+    const dados = parseDadosJson(r.dados_json);
+    let afetado = false;
+    for (const c of removidos) {
+      if (dadosTemConteudo({ [c.id]: dados[c.id] })) {
+        usados.add(c.label || c.id);
+        afetado = true;
+      }
+    }
+    if (afetado) registros++;
+  }
+  return { rotulos: [...usados], registros };
+}
 import {
   absPathFichaPdf,
   FICHA_PDF_MAX_BYTES,
@@ -659,6 +710,21 @@ fichasTemplateRouter.put(
       return;
     }
 
+    if (body.campos) {
+      const emUso = camposRemovidosEmUso(
+        id,
+        destinoPut,
+        normalizarCampos(JSON.parse(row.campos_json)),
+        new Set(campos.map((c) => c.id)),
+      );
+      if (emUso.rotulos.length) {
+        res.status(409).json({
+          error: `Não é possível remover ${emUso.rotulos.join(", ")}: há ${emUso.registros} atendimento(s) em andamento com esse campo preenchido. Finalize-os antes, ou crie uma cópia do modelo e altere a cópia.`,
+        });
+        return;
+      }
+    }
+
     getDb()
       .prepare(
         `UPDATE fichas_template SET
@@ -696,6 +762,14 @@ fichasTemplateRouter.post(
     }
     if (!req.file) {
       res.status(400).json({ error: "Arquivo PDF obrigatório" });
+      return;
+    }
+    // B3 [10]: trocar o PDF desativa o modelo até revisar — não pode ser o padrão.
+    if (row.eh_default === 1) {
+      fs.rmSync(req.file.path, { force: true });
+      res.status(400).json({
+        error: "Esta é a ficha padrão: defina outra ficha padrão antes de trocar o PDF desta",
+      });
       return;
     }
 

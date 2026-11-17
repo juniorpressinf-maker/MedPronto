@@ -28,6 +28,7 @@ import {
   somarPagamentosConta,
 } from "../../lib/cobrancaFormat";
 import { parseCobrancaContaNav, navigateBackFromConta } from "../../lib/cobrancaContaNav";
+import { ReceberContaDialog, paraCentavos, type PagamentoReceber } from "./ReceberContaDialog";
 import {
   adicionarItemComConfirmacaoDuplicata,
   UserCancelledError,
@@ -41,18 +42,18 @@ const STATUS_ITEM_OPCOES: CobrancaItemStatus[] = [
   "realizado",
 ];
 
+// Ordem do caixa (igual ao PDV): Dinheiro | PIX / Débito | Crédito / Transferência.
 const FORMAS_PAGAMENTO: CobrancaFormaPagamento[] = [
-  "pix",
-  "credito",
-  "debito",
   "dinheiro",
+  "pix",
+  "debito",
+  "credito",
   "transferencia",
 ];
 
 function reaisParaCentavos(valor: string): number | null {
-  const n = Number(valor.replace(",", "."));
-  if (!Number.isFinite(n) || n < 0) return null;
-  return Math.round(n * 100);
+  const c = paraCentavos(valor);
+  return c < 0 ? null : c;
 }
 
 export function CobrancaContaPage() {
@@ -70,7 +71,7 @@ export function CobrancaContaPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  const [formaPagamento, setFormaPagamento] = useState<CobrancaFormaPagamento>("pix");
+  const [receberAberto, setReceberAberto] = useState(false);
   const [descontoReais, setDescontoReais] = useState("0");
   const [motivoDesconto, setMotivoDesconto] = useState("");
   const [numeroGuia, setNumeroGuia] = useState("");
@@ -232,38 +233,24 @@ export function CobrancaContaPage() {
     }
   };
 
-  const receberConta = async () => {
+  // Tudo do recebimento (desconto, motivo, formas de pagamento) fica na janela.
+  const receberConta = () => {
     if (!conta) return;
-    if (descontoCentavos > totalItensCentavos) {
-      void msg.error("Desconto não pode ser maior que o total dos itens");
-      return;
-    }
-    if (descontoCentavos > 0 && !motivoDesconto.trim()) {
-      void msg.error("Informe o motivo do desconto");
-      return;
-    }
-    if (valorReceberCentavos > 0 && !formaPagamento) {
-      void msg.error("Selecione a forma de pagamento");
-      return;
-    }
-    const ok = await msg.confirm({
-      title: "Receber conta?",
-      message:
-        valorReceberCentavos > 0
-          ? `Confirmar recebimento de ${formatBRL(valorReceberCentavos)} via ${labelFormaPagamento(formaPagamento)}?`
-          : "Confirmar fechamento da conta sem valor a receber?",
-      confirmLabel: "Receber conta",
-    });
-    if (!ok) return;
+    setReceberAberto(true);
+  };
+
+  const concluirRecebimento = async (pagamentos: PagamentoReceber[]) => {
+    if (!conta) return;
     setBusy(true);
     try {
       setConta(
         await api.cobrancaContaReceber(conta.id, {
           valor_desconto_centavos: descontoCentavos,
           motivo_desconto: descontoCentavos > 0 ? motivoDesconto : null,
-          forma: valorReceberCentavos > 0 ? formaPagamento : undefined,
+          pagamentos: pagamentos.length ? pagamentos : undefined,
         }),
       );
+      setReceberAberto(false);
       navigateBackFromConta(navigate, returnTo, conta.id);
     } catch (e) {
       void msg.error(e instanceof ApiError ? e.message : "Erro ao receber conta");
@@ -356,14 +343,95 @@ export function CobrancaContaPage() {
     }
   };
 
+  const cancelarConta = async () => {
+    if (!conta) return;
+    const motivo = await msg.prompt({
+      title: "Cancelar esta conta?",
+      message: "A conta sai do caixa. Use só para conta lançada por engano, sem pagamento.",
+      inputLabel: "Motivo (obrigatório)",
+      placeholder: "Ex.: conta aberta para o paciente errado",
+      minLength: 3,
+      confirmLabel: "Cancelar conta",
+      cancelLabel: "Voltar",
+    });
+    if (!motivo) return;
+    setBusy(true);
+    try {
+      setConta(await api.cobrancaContaCancelar(conta.id, motivo));
+      void msg.success("Conta cancelada.");
+    } catch (e) {
+      void msg.error(e instanceof ApiError ? e.message : "Erro ao cancelar conta");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const estornarPagamento = async (pagamentoId: number, valor: number) => {
+    if (!conta) return;
+    const motivo = await msg.prompt({
+      title: `Estornar pagamento de ${formatBRL(valor)}?`,
+      message: "O valor volta a ficar pendente na conta. Fica registrado no log de auditoria.",
+      inputLabel: "Motivo (obrigatório)",
+      placeholder: "Ex.: lançado em duplicidade",
+      minLength: 3,
+      confirmLabel: "Estornar",
+      cancelLabel: "Voltar",
+    });
+    if (!motivo) return;
+    setBusy(true);
+    try {
+      setConta(await api.cobrancaContaEstornarPagamento(conta.id, pagamentoId, motivo));
+      void msg.success("Pagamento estornado.");
+    } catch (e) {
+      void msg.error(e instanceof ApiError ? e.message : "Erro ao estornar");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (loading || !conta) {
     return <p className="text-sm text-[var(--muted)] pt-2">Carregando conta…</p>;
   }
+
+  const hojeLocal = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
+  const podeEstornar = (p: { forma: string; registrado_em: string }) =>
+    editavel && ehAdmin && p.forma !== "repasse_convenio" && p.registrado_em.slice(0, 10) === hojeLocal;
+  const podeCancelarConta =
+    editavel &&
+    conta.pagamentos.length === 0 &&
+    (!conta.agendamento_id ||
+      conta.agendamento_status === "cancelado" ||
+      conta.agendamento_status === "nao_compareceu");
 
   const descontoExibido = editavel ? descontoCentavos : (conta?.valor_desconto_centavos ?? 0);
 
   return (
     <div className="cobranca-conta-page w-full max-w-6xl min-w-0 space-y-4 pt-2 pb-8">
+      {receberAberto && conta ? (
+        <ReceberContaDialog
+          valorCentavos={valorReceberCentavos}
+          totalItensCentavos={totalItensCentavos}
+          descontoReais={descontoReais}
+          onDescontoReais={setDescontoReais}
+          motivoDesconto={motivoDesconto}
+          onMotivoDesconto={setMotivoDesconto}
+          formas={FORMAS_PAGAMENTO}
+          atendimentoEmAndamento={["agendado", "presente", "em_atendimento"].includes(
+            conta.agendamento_status ?? "",
+          )}
+          busy={busy}
+          onConfirmar={(p) => void concluirRecebimento(p)}
+          onFechar={() => {
+            // Cancelou: o desconto digitado na janela não foi gravado — volta ao salvo na conta.
+            setDescontoReais(((conta.valor_desconto_centavos ?? 0) / 100).toFixed(2));
+            setMotivoDesconto(conta.motivo_desconto ?? "");
+            setReceberAberto(false);
+          }}
+        />
+      ) : null}
       <VoltarButton
         className="btn btn-secondary btn-sm"
         onClick={() => navigateBackFromConta(navigate, returnTo, conta.id)}
@@ -497,7 +565,7 @@ export function CobrancaContaPage() {
                               pacienteNome={conta.paciente_nome ?? ""}
                               exameAnexoId={item.exame_anexo_id ?? null}
                               exameNome={item.exame_nome ?? null}
-                              editavel={editavel}
+                              editavel={false}
                               onContaAtualizada={setConta}
                               compact
                             />
@@ -606,55 +674,11 @@ export function CobrancaContaPage() {
                   </strong>
                 </span>
               </div>
-              <div className="flex flex-wrap gap-3 items-end">
-                <label className="text-sm">
-                  <span className="font-medium block mb-1">Desconto (R$)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    className="legacy-input w-28"
-                    disabled={busy}
-                    value={descontoReais}
-                    onChange={(e) => setDescontoReais(e.target.value)}
-                  />
-                </label>
-                <label className="text-sm flex-1 min-w-[10rem]">
-                  <span className="font-medium block mb-1">Motivo do desconto</span>
-                  <input
-                    type="text"
-                    className="legacy-input w-full"
-                    disabled={busy}
-                    placeholder={descontoCentavos > 0 ? "Obrigatório" : "Opcional"}
-                    value={motivoDesconto}
-                    onChange={(e) => setMotivoDesconto(e.target.value)}
-                  />
-                </label>
-                {valorReceberCentavos > 0 ? (
-                  <label className="text-sm">
-                    <span className="font-medium block mb-1">Forma de pagamento</span>
-                    <select
-                      className="legacy-input"
-                      disabled={busy}
-                      value={formaPagamento}
-                      onChange={(e) =>
-                        setFormaPagamento(e.target.value as CobrancaFormaPagamento)
-                      }
-                    >
-                      {FORMAS_PAGAMENTO.map((f) => (
-                        <option key={f} value={f}>
-                          {labelFormaPagamento(f)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : null}
-              </div>
               <button
                 type="button"
                 className="btn btn-primary"
                 disabled={busy || itensAtivos.length === 0}
-                onClick={() => void receberConta()}
+                onClick={receberConta}
               >
                 Receber conta
               </button>
@@ -839,7 +863,7 @@ export function CobrancaContaPage() {
             </div>
           ) : null}
 
-          {!editavel && conta.pagamentos.length > 0 ? (
+          {conta.pagamentos.length > 0 ? (
             <div className="mt-4 pt-4 border-t border-[var(--border)]">
               <p className="text-sm font-medium m-0 mb-2">Pagamentos</p>
               <div className="dup-table-wrap">
@@ -849,6 +873,7 @@ export function CobrancaContaPage() {
                       <th>Forma</th>
                       <th className="text-right">Valor</th>
                       <th>Registrado em</th>
+                      {editavel && ehAdmin ? <th className="w-24" aria-label="Ações" /> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -857,6 +882,21 @@ export function CobrancaContaPage() {
                         <td>{labelFormaPagamento(p.forma)}</td>
                         <td className="text-right font-medium">{formatBRL(p.valor_centavos)}</td>
                         <td className="text-sm text-[var(--muted)]">{p.registrado_em}</td>
+                        {editavel && ehAdmin ? (
+                          <td className="text-right">
+                            {podeEstornar(p) ? (
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                disabled={busy}
+                                title="Estorna pagamento lançado hoje por engano"
+                                onClick={() => void estornarPagamento(p.id, p.valor_centavos)}
+                              >
+                                Estornar
+                              </button>
+                            ) : null}
+                          </td>
+                        ) : null}
                       </tr>
                     ))}
                   </tbody>
@@ -875,11 +915,24 @@ export function CobrancaContaPage() {
       {!editavel && ehAdmin ? (
         <button
           type="button"
-          className="btn btn-secondary"
+          // Conta paga: verde, igual aos outros botões de conta paga
+          className={conta.status === "pago" ? "btn btn-cobranca-paga" : "btn btn-secondary"}
           disabled={busy || conta.status === "cancelada"}
           onClick={() => void reabrirConta()}
         >
           Reabrir conta (admin)
+        </button>
+      ) : null}
+
+      {podeCancelarConta ? (
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={busy}
+          title="Conta lançada por engano, sem pagamento"
+          onClick={() => void cancelarConta()}
+        >
+          Cancelar conta
         </button>
       ) : null}
     </div>

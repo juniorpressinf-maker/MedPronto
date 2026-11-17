@@ -21,6 +21,13 @@ import {
 import { assertConsultaEditavel, isConsultaEncerrada } from "../services/consultaEncerrada.js";
 import { logAcesso } from "../services/logAcesso.js";
 import {
+  buscarCatalogo,
+  memoriaPrescricao,
+  variacoesOcultas,
+  ocultarVariacaoPrescricao,
+  registrarUsoDocumentos,
+} from "../services/catalogoNomes.js";
+import {
   gerarDocumentosLotePdf,
   listarDocumentosLote,
 } from "../services/documentosLote.js";
@@ -67,6 +74,10 @@ function ctxFromRow(row: NonNullable<ReturnType<typeof getDocumentoContext>>) {
     paciente_nasc: row.paciente_nasc,
     paciente_cpf: row.paciente_cpf,
     data_emissao: row.data_atendimento,
+    // Preferência do médico do prontuário: papel timbrado = sem cabeçalho da clínica.
+    timbrado: row.impressao_timbrado
+      ? { topo_mm: row.timbrado_topo_mm, rodape_mm: row.timbrado_rodape_mm }
+      : null,
   };
 }
 
@@ -149,12 +160,67 @@ documentosRouter.put(
   }),
 );
 
+// ------------------------------------------------ busca automática + memória de prescrição
+
+const sugestoesQuery = z.object({ q: z.string().max(200).optional().default("") });
+
+/** Sugestões de medicamento — prioriza o que o médico do prontuário mais receita. */
+documentosRouter.get(
+  "/receita/sugestoes",
+  requireModulo("receituario"),
+  asyncHandler(async (req, res) => {
+    const pr = getProntuarioOrThrow(Number(req.params.prontuarioId), req);
+    const { q } = sugestoesQuery.parse(req.query);
+    res.json({ itens: buscarCatalogo("medicamento", q, pr.medico_id) });
+  }),
+);
+
+/** Como o médico do prontuário costuma prescrever o medicamento (até 3 variações). */
+documentosRouter.get(
+  "/receita/memoria",
+  requireModulo("receituario"),
+  asyncHandler(async (req, res) => {
+    const prontuarioId = Number(req.params.prontuarioId);
+    const pr = getProntuarioOrThrow(prontuarioId, req);
+    const { nome } = z.object({ nome: z.string().max(200) }).parse(req.query);
+    res.json({
+      variacoes: memoriaPrescricao(pr.medico_id, nome),
+      ocultas: variacoesOcultas(pr.medico_id, nome),
+    });
+  }),
+);
+
+/** Não sugerir mais uma variação (ex.: digitada errada). Só vale para o médico do prontuário. */
+documentosRouter.post(
+  "/receita/memoria/ocultar",
+  requireModulo("receituario"),
+  asyncHandler(async (req, res) => {
+    const pr = getProntuarioOrThrow(Number(req.params.prontuarioId), req);
+    const body = z
+      .object({ nome: z.string().min(1).max(200), assinatura: z.string().max(1000) })
+      .parse(req.body);
+    ocultarVariacaoPrescricao(pr.medico_id, body.nome, body.assinatura);
+    res.json({ ok: true });
+  }),
+);
+
+documentosRouter.get(
+  "/pedido-exame/sugestoes",
+  requireModulo("documentos"),
+  asyncHandler(async (req, res) => {
+    const pr = getProntuarioOrThrow(Number(req.params.prontuarioId), req);
+    const { q } = sugestoesQuery.parse(req.query);
+    res.json({ itens: buscarCatalogo("exame", q, pr.medico_id) });
+  }),
+);
+
 documentosRouter.get(
   "/receita/pdf",
   requireModulo("receituario", "prontuario_ler"),
   asyncHandler(async (req, res) => {
     const prontuarioId = Number(req.params.prontuarioId);
     getProntuarioOrThrow(prontuarioId, req);
+    registrarUsoDocumentos(prontuarioId); // emitido: entra nas sugestões
     const row = getDocumentoContext(prontuarioId);
     if (!row) {
       res.status(404).json({ error: "Prontuário não encontrado" });
@@ -305,22 +371,24 @@ documentosRouter.put(
       .prepare(`SELECT id FROM pedidos_exame WHERE prontuario_id = ? ORDER BY id DESC LIMIT 1`)
       .get(prontuarioId) as { id: number } | undefined;
 
-    if (existing) {
-      db.prepare(
-        `UPDATE pedidos_exame SET exames_solicitados = ?, observacoes = ? WHERE id = ?`,
-      ).run(body.exames_solicitados, body.observacoes ?? null, existing.id);
-    } else {
-      db.prepare(
-        `INSERT INTO pedidos_exame (prontuario_id, paciente_id, medico_id, exames_solicitados, observacoes)
-         VALUES (?, ?, ?, ?, ?)`,
-      ).run(
-        prontuarioId,
-        pr.paciente_id,
-        pr.medico_id,
-        body.exames_solicitados,
-        body.observacoes ?? null,
-      );
-    }
+    db.transaction(() => {
+      if (existing) {
+        db.prepare(
+          `UPDATE pedidos_exame SET exames_solicitados = ?, observacoes = ? WHERE id = ?`,
+        ).run(body.exames_solicitados, body.observacoes ?? null, existing.id);
+      } else {
+        db.prepare(
+          `INSERT INTO pedidos_exame (prontuario_id, paciente_id, medico_id, exames_solicitados, observacoes)
+           VALUES (?, ?, ?, ?, ?)`,
+        ).run(
+          prontuarioId,
+          pr.paciente_id,
+          pr.medico_id,
+          body.exames_solicitados,
+          body.observacoes ?? null,
+        );
+      }
+    })();
     const pedido = db
       .prepare(`SELECT * FROM pedidos_exame WHERE prontuario_id = ? ORDER BY id DESC LIMIT 1`)
       .get(prontuarioId);
@@ -334,6 +402,7 @@ documentosRouter.get(
   asyncHandler(async (req, res) => {
     const prontuarioId = Number(req.params.prontuarioId);
     getProntuarioOrThrow(prontuarioId, req);
+    registrarUsoDocumentos(prontuarioId); // emitido: entra nas sugestões
     const row = getDocumentoContext(prontuarioId);
     if (!row) {
       res.status(404).json({ error: "Prontuário não encontrado" });
@@ -389,6 +458,7 @@ documentosRouter.get(
   asyncHandler(async (req, res) => {
     const prontuarioId = Number(req.params.prontuarioId);
     const pr = getProntuarioOrThrow(prontuarioId, req);
+    registrarUsoDocumentos(prontuarioId); // emitido: entra nas sugestões
     try {
       const { pdf, incluidos } = await gerarDocumentosLotePdf(prontuarioId, req);
       logAcesso({

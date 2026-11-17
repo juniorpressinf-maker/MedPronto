@@ -10,6 +10,7 @@ export const FICHA_TIPOS_CAMPO = [
   "escolha",
   "cid",
   "retorno",
+  "texto_formatado",
 ] as const;
 
 export type FichaCampoTipo = (typeof FICHA_TIPOS_CAMPO)[number];
@@ -36,6 +37,7 @@ export const FICHA_TIPO_LABELS: Record<FichaCampoTipo, string> = {
   escolha: "Escolha (uma opção)",
   cid: "CID-10",
   retorno: "Retorno (dias)",
+  texto_formatado: "Texto formatado (editor)",
 };
 
 export const OPCOES_MARCADORES_PADRAO = ["Opção A", "Opção B"] as const;
@@ -97,6 +99,7 @@ export function novoCampo(tipo: FichaCampoTipo, ordem: number, existentes: Ficha
     escolha: "Escolha:",
     cid: "CID-10",
     retorno: "Retorno (dias)",
+    texto_formatado: "Evolução:",
   };
   const label = labels[tipo];
   const id = slugCampoId(label, usados);

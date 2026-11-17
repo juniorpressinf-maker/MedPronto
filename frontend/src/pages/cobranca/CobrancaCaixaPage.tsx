@@ -10,7 +10,6 @@ import {
   formatBRL,
   formatDataBr,
   hojeIso,
-  labelBotaoContaAgendamento,
   labelFormaPagamento,
   labelHoraConta,
   labelStatusCobranca,
@@ -129,6 +128,14 @@ export function CobrancaCaixaPage() {
                         </tr>
                       ))}
                     </tbody>
+                    <tfoot>
+                      <tr className="relatorio-total">
+                        <td>Total</td>
+                        <td className="text-right whitespace-nowrap">
+                          {formatBRL(caixa.por_forma.reduce((t, f) => t + f.valor_centavos, 0))}
+                        </td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               </section>
@@ -154,6 +161,7 @@ export function CobrancaCaixaPage() {
                         <th className="cobranca-dia-status">Status</th>
                         <th className="cobranca-dia-num text-right">Líquido</th>
                         <th className="cobranca-dia-num text-right">Pago</th>
+                        <th className="cobranca-dia-forma">Pagamento</th>
                         <th className="cobranca-dia-num text-right">Saldo</th>
                         <th className="cobranca-dia-acao" />
                       </tr>
@@ -192,6 +200,18 @@ export function CobrancaCaixaPage() {
                           <td className="cobranca-dia-num text-right">
                             {formatBRL(c.total_pago_centavos)}
                           </td>
+                          <td className="cobranca-dia-forma text-sm">
+                            {c.formas?.length ? (
+                              c.formas.map((f, i) => (
+                                <span key={i} className="block whitespace-nowrap">
+                                  {labelFormaPagamento(f.forma)}{" "}
+                                  {c.formas!.length > 1 ? formatBRL(f.valor_centavos) : ""}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-[var(--muted)]">—</span>
+                            )}
+                          </td>
                           <td
                             className={`cobranca-dia-num text-right font-medium ${
                               c.saldo_pendente_centavos > 0 ? "text-amber-800" : ""
@@ -204,7 +224,7 @@ export function CobrancaCaixaPage() {
                               to={linkCobrancaConta(c.id, returnPath, "Voltar ao caixa")}
                               className={classeBotaoContaAgendamento(c.status, "no-underline")}
                             >
-                              {labelBotaoContaAgendamento(c.status)}
+                              Mostrar
                             </Link>
                           </td>
                         </tr>

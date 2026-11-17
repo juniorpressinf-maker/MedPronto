@@ -1,4 +1,5 @@
 import { getDb } from "../db/index.js";
+import { htmlParaTexto } from "./textoFormatado.js";
 import {
   normalizarCampos,
   type FichaCampoDef,
@@ -99,8 +100,16 @@ export function assertFichaPermitida(
   medicoId: number,
   fichaTemplateId: number,
   destino: FichaDestino = "prontuario",
+  /** B3 [11]: ao ESCOLHER a ficha (agenda/troca). Quem já usa uma ficha desativada continua salvando. */
+  opts: { exigirAtiva?: boolean } = {},
 ): void {
   const ficha = getFichaTemplateOrThrow(fichaTemplateId);
+  if (opts.exigirAtiva && ficha.ativo !== 1) {
+    throw new FichaProntuarioError(
+      destino === "aso" ? "Este modelo ASO está desativado" : "Esta ficha está desativada",
+      400,
+    );
+  }
   const dest = (ficha.destino ?? "prontuario") as FichaDestino;
   if (dest !== destino) {
     throw new FichaProntuarioError(
@@ -232,6 +241,54 @@ export function legadoParaDadosJson(
     }
   }
   return dados;
+}
+
+/**
+ * B2 [4] — troca de ficha com prontuário em andamento, SEM perder dado.
+ * Leva os valores dos campos que existem nas duas fichas (mesmo id).
+ * Se algum campo preenchido não existir na ficha nova, recusa (409) e diz quais.
+ */
+export function converterDadosParaNovaFicha(
+  pr: ProntuarioLegado & { dados_json?: string | null },
+  camposNovos: FichaCampoDef[],
+  camposAntigos: FichaCampoDef[] = [],
+): Record<string, unknown> {
+  const idsNovos = new Set(camposNovos.map((c) => c.id));
+  const perdidos: string[] = [];
+  const rotulo = (id: string) => camposAntigos.find((c) => c.id === id)?.label ?? id;
+
+  const novo = legadoParaDadosJson(pr, camposNovos);
+
+  if (pr.dados_json?.trim()) {
+    const antigo = parseDadosJson(pr.dados_json);
+    for (const [k, v] of Object.entries(antigo)) {
+      if (idsNovos.has(k)) {
+        novo[k] = v;
+      } else if (dadosTemConteudo({ [k]: v })) {
+        perdidos.push(rotulo(k));
+      }
+    }
+  } else {
+    // Prontuário antigo, só com colunas legadas.
+    for (const id of LEGACY_TEXT_IDS) {
+      const v = (pr as Record<string, unknown>)[id];
+      if (typeof v === "string" && v.trim() && !idsNovos.has(id)) perdidos.push(id);
+    }
+    if ((pr.cid_codigo?.trim() || pr.cid_descricao?.trim()) && !camposNovos.some((c) => c.tipo === "cid")) {
+      perdidos.push("CID");
+    }
+    if (pr.retorno_dias != null && !camposNovos.some((c) => c.tipo === "retorno")) {
+      perdidos.push("Retorno");
+    }
+  }
+
+  if (perdidos.length) {
+    throw new FichaProntuarioError(
+      `A ficha nova não tem campo para dados já preenchidos (${perdidos.join(", ")}). Para não perder informação, a troca foi bloqueada.`,
+      409,
+    );
+  }
+  return novo;
 }
 
 export function dadosTemConteudo(dados: Record<string, unknown>): boolean {
@@ -382,6 +439,8 @@ export function campoTemConteudo(
     }
     case "retorno":
       return typeof valor === "number" && Number.isFinite(valor);
+    case "texto_formatado":
+      return Boolean(htmlParaTexto(valor).trim());
     default:
       return typeof valor === "string"
         ? Boolean(valor.trim())
@@ -432,6 +491,8 @@ export function formatarValorCampoPdf(
         ? `${valor} dia(s) (até ${formatDataBrPdf(ate)})`
         : `${valor} dia(s)`;
     }
+    case "texto_formatado":
+      return htmlParaTexto(valor);
     default:
       return typeof valor === "string" ? valor.trim() : String(valor ?? "").trim();
   }
@@ -441,13 +502,14 @@ export function prepararCamposConsultaPdf(
   campos: FichaCampoDef[],
   dados: Record<string, unknown>,
   retornoAte?: string | null,
-): { label: string; valor: string }[] {
+): { label: string; valor: string; html?: string }[] {
   const ordenados = [...campos].sort((a, b) => a.ordem - b.ordem);
   return ordenados
     .filter((c) => campoTemConteudo(c.tipo, dados[c.id]))
     .map((c) => ({
       label: c.label.replace(/:+$/, "").trim() || c.id,
       valor: formatarValorCampoPdf(c.tipo, dados[c.id], retornoAte),
+      ...(c.tipo === "texto_formatado" ? { html: String(dados[c.id] ?? "") } : {}),
     }))
     .filter((c) => c.valor);
 }

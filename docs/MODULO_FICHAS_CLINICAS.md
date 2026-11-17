@@ -447,3 +447,11 @@ Quando **F0** for implementado, referenciar este doc em `Plano_MedPronto_v2.md`.
 | Data | Alteração |
 |------|-----------|
 | 2026-06-28 | Versão inicial — consulta editável; autoria template + PDF; sem JSON; snapshot; ref. cobrança/desconto/retorno |
+
+## Campo "Texto formatado (editor)" — tipo `texto_formatado` (14/11/2026)
+
+- Editor com negrito, itálico, sublinhado, título, lista e lista numerada (TipTap). Valor = HTML **restrito** em `dados_json`.
+- Segurança: servidor limpa ao salvar (`backend/src/services/textoFormatado.ts` → `limparHtmlProntuario`, lista branca p/br/strong/em/u/ul/ol/li/h3, sem atributos); a tela limpa de novo ao mostrar (DOMPurify).
+- PDF da consulta desenha a formatação (`documentPdf.ts` → `desenharTextoFormatado`), respeitando cabeçalho/papel timbrado e quebra de página.
+- Ficha-modelo "Prontuário livre (editor)" (migração 050): Evolução (texto formatado) + CID + Retorno.
+- Teste: `npm run test:tf1 -w backend`.

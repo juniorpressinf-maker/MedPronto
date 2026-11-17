@@ -72,7 +72,7 @@ Todos derivados **do prontuário**:
 | Com horário | **Uma conta ativa** por `agendamentos.id`; `paciente_id` e `data` iguais aos do horário (`039_integridade_u13.sql`) |
 | Walk-in | `agendamento_id` NULL; **uma** conta ativa por `paciente_id` + `data` |
 | `convenio_id` | No horário e na conta; enquanto `em_aberto`, um acompanha o outro |
-| Itens da conta | Só mudam com a conta `em_aberto` (e sem `fechada_em`); `045_conta_itens_conta_aberta.sql` |
+| Itens da conta | Só mudam com a conta `em_aberto` (e sem `fechada_em`); `045_conta_itens_conta_aberta.sql`. Exceção: só `exame_anexo_id` (laudo) muda com a conta paga/fechada (não cancelada) — `055_conta_item_laudo_conta_fechada.sql` (coluna nova em `conta_itens` ⇒ incluir na lista do trigger) |
 | Itens referenciam `procedimento_id` | Preço = snapshot `valor_centavos` na inclusão |
 | `conta_itens.agendamento_procedimento_id` | Se preenchido, é a linha N:N **do mesmo** `agendamento_id` da conta. Item só do médico fica NULL |
 | `contas_atendimento.prontuario_id` | Opcional; se preenchido, **mesmo** `paciente_id` da conta |
@@ -174,7 +174,7 @@ Todos derivados **do prontuário**:
 | Vínculo médico–paciente para histórico | `vinculosClinicos.ts` |
 | Um prontuário por agendamento (lógica transacional) | `prontuarios.ts` `/abrir` |
 | Prontuário e ASO no mesmo `agendamento_id` | `044_horario_prontuario_aso.sql`; `POST /admissionais` chama `assertHorarioAbreAso` |
-| Item de conta fechada | `045_conta_itens_conta_aberta.sql` (INSERT/UPDATE/DELETE) |
+| Item de conta fechada | `045_conta_itens_conta_aberta.sql` (INSERT/UPDATE/DELETE); UPDATE só do laudo liberado em `055_conta_item_laudo_conta_fechada.sql` |
 
 ### 5.2 Lacunas e riscos (corrigir)
 
@@ -244,6 +244,7 @@ Todo endpoint que grava dado clínico ou financeiro deve:
 
 | Data | Alteração |
 |------|-----------|
+| 2026-11-15 | **Auditoria B1–B3** — saída do atendimento (cancelar/falta/desfazer chegada) bloqueada com prontuário/ASO e cancela conta vazia; finalizar só em atendimento; consulta finalizada não reabre (snapshot); ASO restrito ao médico; troca de ficha sem perda; procedimentos × clínico; ASO cobrado uma vez; teto/estorno de pagamento; cancelar conta; `052_integridade_b3.sql` (horário com vínculo imutável no banco; retificação única); datas locais na cobrança; auditoria do cadastro; WhatsApp com telefone compartilhado. Testes `test:b1/b2/b3`. Relatório: `RELATORIO_AUDITORIA_INTEGRIDADE_2026-11-15.txt` |
 | 2026-08-26 | A5 — retificação de ASO (`041`/`042`); cobrança permanece no original |
 | 2026-08-21 | **U13** — chave financeira = horário; `039_integridade_u13.sql` |
 | 2026-07-05 | Bloco **I4** — integridade cobrança (`023_integridade_i4_cobranca.sql` + `cobrancaContas.ts`) |

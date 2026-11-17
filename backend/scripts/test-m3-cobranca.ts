@@ -1,3 +1,5 @@
+import "./lib/exigirCopia.js"; // trava: nunca no banco real (rodar via npm run test:*)
+import { limparResiduos2099 } from "./lib/limparResiduos2099.js";
 /**
  * Aceite M3 — check-in abre conta com item previsto.
  */
@@ -9,7 +11,8 @@ import { executarContaNoCheckin } from "../src/services/cobrancaCheckin.js";
 import { obterContaDetalhe } from "../src/services/cobrancaContas.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.resolve(__dirname, "../../data/medpronto.db");
+// A7: DATABASE_PATH permite rodar numa cópia (scripts/test-a7-regressao.mjs); sem ele, banco real como antes.
+const dbPath = process.env.DATABASE_PATH || path.resolve(__dirname, "../../data/medpronto.db");
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(`FALHOU: ${msg}`);
@@ -18,6 +21,7 @@ function assert(cond: boolean, msg: string): void {
 function main(): void {
   runMigrations();
   const db = new Database(dbPath);
+  limparResiduos2099(db); // resíduos de execuções antigas (ano 2099)
   db.pragma("foreign_keys = ON");
 
   const paciente = db

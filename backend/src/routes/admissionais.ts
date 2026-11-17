@@ -463,6 +463,8 @@ admissionaisRouter.post(
         res.status(400).json({ error: "Agendamento inválido para este paciente" });
         return;
       }
+      // Médico só acessa/cria ASO do próprio horário (antes de devolver o existente).
+      assertMedicoAdmissional(req, ag.medico_id);
       const existente = findAdmissionalPorAgendamento(body.agendamento_id);
       if (existente) {
         res.status(201).json(rowToJson(existente));
@@ -487,6 +489,25 @@ admissionaisRouter.post(
               .get(body.agendamento_id) as { medico_id: number } | undefined
           )?.medico_id ?? body.medico_id
         : body.medico_id;
+
+    if (body.agendamento_id == null) {
+      // ASO avulso: médico só cria em seu próprio nome.
+      assertMedicoAdmissional(req, medicoId);
+      // Duplo clique / reenvio: reaproveita o avulso em preenchimento de hoje.
+      const avulso = getDb()
+        .prepare(
+          `SELECT id FROM admissionais
+           WHERE paciente_id = ? AND medico_id = ? AND agendamento_id IS NULL
+             AND retificacao_de_id IS NULL AND status = 'em_preenchimento'
+             AND date(created_at) = date('now', 'localtime')
+           ORDER BY id DESC LIMIT 1`,
+        )
+        .get(body.paciente_id, medicoId) as { id: number } | undefined;
+      if (avulso) {
+        res.status(201).json(rowToJson(getById(avulso.id)!));
+        return;
+      }
+    }
 
     let asoTemplateId: number | null = null;
     try {

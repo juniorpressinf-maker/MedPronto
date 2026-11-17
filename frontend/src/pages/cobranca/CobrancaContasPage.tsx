@@ -19,7 +19,14 @@ import {
   takeCadastroReturn,
 } from "../../lib/cadastroReturn";
 import { loadScreenState } from "../../lib/screenState";
-import { formatBRL, formatDataBr, hojeIso, labelHoraConta, labelStatusCobranca } from "../../lib/cobrancaFormat";
+import {
+  classeBotaoContaAgendamento,
+  formatBRL,
+  formatDataBr,
+  hojeIso,
+  labelHoraConta,
+  labelStatusCobranca,
+} from "../../lib/cobrancaFormat";
 import {
   adicionarItemComConfirmacaoDuplicata,
   UserCancelledError,
@@ -310,9 +317,9 @@ export function CobrancaContasPage() {
                     <td className="cobranca-dia-acao">
                       <Link
                         to={linkCobrancaConta(c.id, cobrancaReturn, "Voltar às contas")}
-                        className="btn btn-secondary btn-sm no-underline"
+                        className={classeBotaoContaAgendamento(c.status, "no-underline")}
                       >
-                        Abrir
+                        Mostrar
                       </Link>
                     </td>
                   </tr>

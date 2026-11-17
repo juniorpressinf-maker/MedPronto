@@ -89,6 +89,15 @@ export function horarioTemAso(
   return listaTemModo(procedimentosDaLinha(r), "aso");
 }
 
+/** Horário com algum exame auxiliar (laudo PDF). Só pela lista real — sem o fallback "Procedimento". */
+export function horarioTemExame(r: {
+  procedimentos?: { modo_clinico: ModoClinico | string }[];
+}): boolean {
+  return (r.procedimentos ?? []).some(
+    (p) => ((p.modo_clinico as ModoClinico) || "nenhum") === "nenhum",
+  );
+}
+
 /** Horário só com exames: sem prontuário e sem ASO. Sem lista na API, só se o tipo derivado for exame. */
 export function horarioSoExame(r: {
   procedimentos?: {

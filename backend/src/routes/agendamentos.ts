@@ -12,10 +12,11 @@ import { getRetornoVigente } from "../services/retornoService.js";
 import {
   assertFichaPermitida,
   camposFromTemplate,
+  converterDadosParaNovaFicha,
   dadosJsonToString,
   FichaProntuarioError,
   getFichaTemplateOrThrow,
-  legadoParaDadosJson,
+  resolveFichaTemplateIdFromAgendamento,
 } from "../services/fichaProntuario.js";
 import { assertConsultaEditavel } from "../services/consultaEncerrada.js";
 import {
@@ -23,7 +24,7 @@ import {
   executarContaNoCheckin,
 } from "../services/cobrancaCheckin.js";
 import { listarProcedimentos, listarConvenios } from "../services/cobrancaCadastros.js";
-import { sugerirConvenioPaciente } from "../services/cobrancaContas.js";
+import { obterPrecoProcedimento, sugerirConvenioPaciente } from "../services/cobrancaContas.js";
 import {
   AgendamentoAtendimentoError,
   anexarProcedimentosAgendamentos,
@@ -37,12 +38,36 @@ import {
   listaTemConsultaRetorno,
   MSG_SLOT_PACIENTE_MEDICO_DUPLICADO,
   listarProcedimentosDoAgendamento,
+  prepararSaidaDoAtendimento,
   sincronizarProcedimentosAgendamento,
   validarListaProcedimentos,
 } from "../services/agendamentoAtendimento.js";
 import { listarHistoricoExamesClinicos } from "../services/historicoClinicoExames.js";
+import { AgendaErro } from "../services/agendaErro.js";
+import {
+  assertTipoCompativel,
+  calcularAvisos,
+  assertDiaEspecialConfirmado,
+  carregarGrade,
+  duracaoPorHoraFim,
+  duracaoSugerida,
+  listarVagos,
+  remarcarAgendamento,
+  resolverTipoAgendamento,
+  trocarAgendamentos,
+} from "../services/agendaGrade.js";
+import { obterTipo } from "../services/agendaConfig.js";
+import { assertRetornoAgendavel } from "../services/retornoAgenda.js";
+import { horaFimValida, horaParaMinutos, horaValida } from "../services/agendaHorario.js";
+import { idDoParametro, listaDeIds, rotaAgenda, usuarioDaRequisicao } from "./agendaRespostas.js";
 import { assertMedicoVinculoPaciente } from "../services/vinculosClinicos.js";
 import { tentarPreparoZapAposEdicao } from "../services/whatsappService.js";
+import {
+  listarExamesPendentes,
+  listarExamesResultadoAgendamento,
+  pacienteDoAgendamento,
+  vincularResultadoExameAgendamento,
+} from "../services/exameResultadoAgendamento.js";
 
 const STATUS = [
   "agendado",
@@ -182,6 +207,27 @@ function podeFiltrarFilaTodosMedicos(req: Request): boolean {
     usuarioTemModulo(u.id, perfil, "fila_recepcao")
   );
 }
+
+// Resultado (laudo) dos exames do horário — Sala de espera, atendimento e Laudos pendentes.
+const podeResultadoExame = requireModulo(
+  "fila_medico",
+  "fila_recepcao",
+  "exames_anexos",
+  "cobranca",
+);
+
+// Antes de "/:id". Médico sem fila da recepção vê só os seus.
+agendamentosRouter.get(
+  "/exames-pendentes",
+  podeResultadoExame,
+  asyncHandler(async (req, res) => {
+    const medicoId =
+      !podeFiltrarFilaTodosMedicos(req) && req.usuario!.perfil === "medico"
+        ? req.usuario!.id
+        : null;
+    res.json({ pendentes: listarExamesPendentes(medicoId) });
+  }),
+);
 
 agendamentosRouter.get(
   "/fila",
@@ -347,6 +393,74 @@ agendamentosRouter.get(
   }),
 );
 
+// ---------------------------------------------------------------------------
+// Agenda Nova (A2) — grade e horários vagos. Antes de "/:id".
+// ---------------------------------------------------------------------------
+
+agendamentosRouter.get(
+  "/grade",
+  rotaAgenda((req, res) => {
+    if (!podeAgenda(req) && !podeFilaMedico(req) && !podeFilaRecepcao(req)) {
+      throw new AgendaErro("Sem permissão para agenda", 403, "sem_permissao");
+    }
+    let medicoIds = listaDeIds(req.query.medico_ids);
+    if (req.usuario!.perfil === "medico") medicoIds = [req.usuario!.id];
+    res.json(
+      carregarGrade({
+        de: String(req.query.de ?? "").trim(),
+        ate: String(req.query.ate ?? "").trim(),
+        medicoIds,
+        incluirInativos: req.query.inativos !== "0",
+      }),
+    );
+  }),
+);
+
+agendamentosRouter.get(
+  "/vagos",
+  rotaAgenda((req, res) => {
+    if (!podeAgenda(req) && !podeFilaRecepcao(req)) {
+      throw new AgendaErro("Sem permissão para agenda", 403, "sem_permissao");
+    }
+    let medicoId = Number(req.query.medico_id);
+    if (req.usuario!.perfil === "medico") medicoId = req.usuario!.id;
+    if (!Number.isInteger(medicoId) || medicoId <= 0) throw new AgendaErro("medico_id obrigatório");
+    res.json(
+      listarVagos({
+        de: String(req.query.de ?? "").trim(),
+        ate: String(req.query.ate ?? "").trim(),
+        medicoId,
+      }),
+    );
+  }),
+);
+
+/**
+ * Agenda Nova (A4c) — prévia da marcação: valor total dos procedimentos no convênio
+ * e duração sugerida. Sem exigir permissão de configuração de cobrança.
+ */
+agendamentosRouter.get(
+  "/previa",
+  rotaAgenda((req, res) => {
+    if (!podeAgenda(req) && !podeFilaRecepcao(req)) {
+      throw new AgendaErro("Sem permissão para agenda", 403, "sem_permissao");
+    }
+    const convenioId = Number(req.query.convenio_id);
+    const ids = listaDeIds(req.query.procedimento_ids, "procedimentos") ?? [];
+    if (ids.length > 50) throw new AgendaErro("Procedimentos demais");
+    const itens = ids.map((id) => ({
+      procedimento_id: id,
+      valor_centavos:
+        Number.isInteger(convenioId) && convenioId > 0 ? obterPrecoProcedimento(id, convenioId) : 0,
+    }));
+    res.json({
+      itens,
+      total_centavos: itens.reduce((s, i) => s + i.valor_centavos, 0),
+      duracao_sugerida: duracaoSugerida(ids),
+    });
+  }),
+);
+
 agendamentosRouter.get(
   "/",
   asyncHandler(async (req, res) => {
@@ -408,11 +522,20 @@ const createSchema = z.object({
   eh_encaixe: z.boolean().optional(),
   convenio_id: z.number().int().positive(),
   procedimento_ids: z.array(z.number().int().positive()).min(1),
+  // Agenda Nova (A2) — todos opcionais: a tela antiga continua igual.
+  agendamento_tipo_id: z.number().int().positive().nullable().optional(),
+  hora_fim: z.string().refine(horaFimValida, "hora_fim no formato HH:MM").optional(),
+  ignorar_bloqueio: z.boolean().optional(),
+  /** Confirma retorno sem consulta prévia / com prazo vencido (409 retorno_confirmar). */
+  confirmar_retorno: z.boolean().optional(),
+  /** Confirma sábado/domingo/feriado/fora do expediente (409 dia_especial). */
+  confirmar_dia_especial: z.boolean().optional(),
 });
 
 const patchProcedimentosSchema = z.object({
   procedimento_ids: z.array(z.number().int().positive()).min(1),
   convenio_id: z.number().int().positive().optional(),
+  reabrir_conta: z.boolean().optional(),
 });
 
 const fichaAgendamentoSchema = z.object({
@@ -606,25 +729,21 @@ agendamentosRouter.post(
     }
 
     if (ehRetorno && tipo === "consulta") {
-      if (!vigente) {
-        res.status(400).json({
-          error: "Paciente sem retorno vigente para agendar como retorno.",
+      // Sem consulta prévia / prazo vencido → 409 retorno_confirmar (tela pergunta).
+      // Retorno vigente com outro médico → 400. Ver services/retornoAgenda.ts.
+      try {
+        assertRetornoAgendavel({
+          paciente_id: body.paciente_id,
+          medico_id: body.medico_id,
+          data: body.data,
+          confirmado: body.confirmar_retorno === true,
         });
-        return;
-      }
-      if (body.medico_id !== vigente.medico_id) {
-        res.status(400).json({
-          error: `Retorno deve ser com ${vigente.medico_nome}. Para outro médico, use nova consulta.`,
-          retorno: vigente,
-        });
-        return;
-      }
-      if (body.data > vigente.retorno_ate.slice(0, 10)) {
-        res.status(400).json({
-          error: `Data após o fim do prazo de retorno (${vigente.retorno_ate.slice(0, 10)}). Agende como nova consulta.`,
-          retorno: vigente,
-        });
-        return;
+      } catch (e) {
+        if (e instanceof AgendaErro) {
+          res.status(e.status).json(e.paraJson());
+          return;
+        }
+        throw e;
       }
     }
 
@@ -666,7 +785,51 @@ agendamentosRouter.post(
       res.status(400).json({ error: "Médico não encontrado ou inativo" });
       return;
     }
-    const ehEncaixe = body.eh_encaixe ? 1 : 0;
+    // Agenda Nova: tipo (compatível com os procedimentos), duração e bloqueio.
+    let agendamentoTipoId: number | null;
+    let ehEncaixe: 0 | 1;
+    let duracao: number;
+    try {
+      const resolvido = resolverTipoAgendamento(
+        body.agendamento_tipo_id,
+        { tipo_atendimento: tipo, eh_retorno: ehRetorno },
+        body.eh_encaixe,
+      );
+      agendamentoTipoId = resolvido.agendamento_tipo_id;
+      ehEncaixe = resolvido.eh_encaixe ? 1 : 0;
+
+      const porFim = body.hora_fim ? duracaoPorHoraFim(body.hora, body.hora_fim) : undefined;
+      if (porFim !== undefined && body.duracao_minutos !== undefined && porFim !== body.duracao_minutos) {
+        throw new AgendaErro("hora_fim e duracao_minutos não batem — envie só um dos dois");
+      }
+      duracao =
+        body.duracao_minutos ?? porFim ?? duracaoSugerida(body.procedimento_ids);
+      if (!horaValida(body.hora)) throw new AgendaErro("Hora inválida");
+      if (horaParaMinutos(body.hora) + duracao > 24 * 60) {
+        throw new AgendaErro("O horário termina depois da meia-noite");
+      }
+      if (!body.ignorar_bloqueio) {
+        const { bloqueios } = calcularAvisos({
+          medico_id: body.medico_id,
+          data: body.data,
+          hora: body.hora,
+          duracao_minutos: duracao,
+        });
+        if (bloqueios.length) {
+          throw new AgendaErro("Horário bloqueado na agenda", 409, "horario_bloqueado", { bloqueios });
+        }
+      }
+      assertDiaEspecialConfirmado(
+        { medico_id: body.medico_id, data: body.data, hora: body.hora, duracao_minutos: duracao },
+        body.confirmar_dia_especial === true,
+      );
+    } catch (e) {
+      if (e instanceof AgendaErro) {
+        res.status(e.status).json(e.paraJson());
+        return;
+      }
+      throw e;
+    }
     const obs = body.observacao_agenda?.trim() || null;
     const observacao = ehRetorno && !obs ? "Retorno" : obs;
     const statusInicial = body.checkin ? "presente" : "agendado";
@@ -680,7 +843,7 @@ agendamentosRouter.post(
         return;
       }
       try {
-        assertFichaPermitida(body.medico_id, body.ficha_template_id, "prontuario");
+        assertFichaPermitida(body.medico_id, body.ficha_template_id, "prontuario", { exigirAtiva: true });
         fichaTemplateId = body.ficha_template_id;
       } catch (e) {
         if (handleFichaError(e, res)) return;
@@ -697,7 +860,7 @@ agendamentosRouter.post(
         return;
       }
       try {
-        assertFichaPermitida(body.medico_id, body.aso_template_id, "aso");
+        assertFichaPermitida(body.medico_id, body.aso_template_id, "aso", { exigirAtiva: true });
         asoTemplateId = body.aso_template_id;
       } catch (e) {
         if (handleFichaError(e, res)) return;
@@ -730,15 +893,15 @@ agendamentosRouter.post(
               paciente_id, medico_id, data, hora, duracao_minutos,
               observacao_agenda, eh_retorno, tipo_atendimento, status,
               ficha_template_id, aso_template_id, eh_encaixe,
-              procedimento_id, convenio_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              procedimento_id, convenio_id, agendamento_tipo_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             body.paciente_id,
             body.medico_id,
             body.data,
             body.hora,
-            body.duracao_minutos ?? 30,
+            duracao,
             observacao,
             ehRetorno ? 1 : 0,
             tipo,
@@ -748,6 +911,7 @@ agendamentosRouter.post(
             ehEncaixe,
             procedimentoId,
             body.convenio_id,
+            agendamentoTipoId,
           );
         const newId = Number(info.lastInsertRowid);
         gravarProcedimentosExtras(newId, body.procedimento_ids, db);
@@ -785,9 +949,166 @@ agendamentosRouter.post(
          WHERE a.id = ?`,
       )
       .get(id) as { id: number };
-    res.status(201).json(enriquecerLinha(row));
+    res.status(201).json({
+      ...enriquecerLinha(row),
+      // Agenda Nova: aviso, não bloqueio (encaixe continua passando).
+      avisos: calcularAvisos({
+        medico_id: body.medico_id,
+        data: body.data,
+        hora: body.hora,
+        duracao_minutos: duracao,
+        ignorarIds: [id],
+      }),
+    });
   }),
 );
+
+// ---------------------------------------------------------------------------
+// Agenda Nova (A2) — tipo/comentário, mover e trocar
+// ---------------------------------------------------------------------------
+
+const patchAgendaSchema = z.strictObject({
+  agendamento_tipo_id: z.number().int().positive().optional(),
+  observacao_agenda: z.string().max(500).nullable().optional(),
+});
+
+agendamentosRouter.patch(
+  "/:id/agenda",
+  requireModulo("agenda"),
+  rotaAgenda((req, res) => {
+    const id = idDoParametro(req);
+    const body = patchAgendaSchema.parse(req.body);
+    const db = getDb();
+    const ag = db
+      .prepare(
+        `SELECT id, paciente_id, medico_id, status, tipo_atendimento, eh_retorno FROM agendamentos WHERE id = ?`,
+      )
+      .get(id) as
+      | { id: number; paciente_id: number; medico_id: number; status: Status; tipo_atendimento: "consulta" | "admissional" | "exame"; eh_retorno: number }
+      | undefined;
+    if (!ag) throw new AgendaErro("Agendamento não encontrado", 404, "nao_encontrado");
+    if (req.usuario!.perfil === "medico" && ag.medico_id !== req.usuario!.id) {
+      throw new AgendaErro("Agendamento de outro médico", 403, "sem_permissao");
+    }
+
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    if (body.agendamento_tipo_id !== undefined) {
+      if (ag.status === "finalizado") {
+        throw new AgendaErro("Atendimento finalizado: o tipo não pode mais ser alterado", 409, "conflito");
+      }
+      const tipo = obterTipo(body.agendamento_tipo_id);
+      if (!tipo || !tipo.ativo) throw new AgendaErro("Tipo de agendamento inexistente ou inativo");
+      // tipo_atendimento/eh_retorno do horário já refletem os procedimentos (U5).
+      assertTipoCompativel(tipo, { tipo_atendimento: ag.tipo_atendimento, eh_retorno: ag.eh_retorno === 1 });
+      sets.push("agendamento_tipo_id = ?", "eh_encaixe = ?");
+      params.push(tipo.id, tipo.eh_encaixe);
+    }
+    if (body.observacao_agenda !== undefined) {
+      sets.push("observacao_agenda = ?");
+      params.push(body.observacao_agenda?.trim() || null);
+    }
+    if (sets.length === 0) throw new AgendaErro("Nada para alterar");
+
+    db.prepare(
+      `UPDATE agendamentos SET ${sets.join(", ")}, updated_at = datetime('now', 'localtime') WHERE id = ?`,
+    ).run(...params, id);
+    logAcesso({
+      usuarioId: req.usuario!.id,
+      pacienteId: ag.paciente_id,
+      acao: "agendamento_agenda_alterado",
+      detalhe: `id=${id} ${Object.keys(body).join(",")}`,
+    });
+    res.json(enriquecerLinha(db.prepare(`SELECT a.*, p.nome AS paciente_nome, u.nome AS medico_nome
+      FROM agendamentos a JOIN pacientes p ON p.id = a.paciente_id JOIN usuarios u ON u.id = a.medico_id
+      WHERE a.id = ?`).get(id) as { id: number }));
+  }),
+);
+
+const moverSchema = z.strictObject({
+  data: z.string(),
+  hora: z.string(),
+  medico_id: z.number().int().positive().optional(),
+  duracao_minutos: z.number().int().min(5).max(480).optional(),
+  hora_fim: z.string().refine(horaFimValida, "hora_fim no formato HH:MM").optional(),
+  ignorar_bloqueio: z.boolean().optional(),
+  confirmar_retorno: z.boolean().optional(),
+  /** Confirma sábado/domingo/feriado/fora do expediente (409 dia_especial). */
+  confirmar_dia_especial: z.boolean().optional(),
+});
+
+agendamentosRouter.post(
+  "/:id/mover",
+  requireModulo("agenda"),
+  rotaAgenda((req, res) => {
+    const id = idDoParametro(req);
+    const body = moverSchema.parse(req.body);
+    if (body.hora_fim && body.duracao_minutos !== undefined) {
+      throw new AgendaErro("Envie hora_fim ou duracao_minutos, não os dois");
+    }
+    if (!horaValida(body.hora)) throw new AgendaErro("Hora inválida");
+    const r = remarcarAgendamento(
+      id,
+      {
+        data: body.data,
+        hora: body.hora,
+        medico_id: body.medico_id,
+        duracao_minutos: body.hora_fim ? duracaoPorHoraFim(body.hora, body.hora_fim) : body.duracao_minutos,
+      },
+      {
+        usuario: usuarioDaRequisicao(req),
+        ignorarBloqueio: body.ignorar_bloqueio,
+        confirmarRetorno: body.confirmar_retorno,
+        confirmarDiaEspecial: body.confirmar_dia_especial,
+      },
+    );
+    logRemarcacao(req.usuario!.id, r, "agendamento_remarcado");
+    res.json(r);
+  }),
+);
+
+const trocarSchema = z.strictObject({
+  outro_id: z.number().int().positive(),
+  ignorar_bloqueio: z.boolean().optional(),
+  confirmar_retorno: z.boolean().optional(),
+  /** Confirma sábado/domingo/feriado/fora do expediente (409 dia_especial). */
+  confirmar_dia_especial: z.boolean().optional(),
+});
+
+agendamentosRouter.post(
+  "/:id/trocar",
+  requireModulo("agenda"),
+  rotaAgenda((req, res) => {
+    const id = idDoParametro(req);
+    const body = trocarSchema.parse(req.body);
+    const r = trocarAgendamentos(id, body.outro_id, {
+      usuario: usuarioDaRequisicao(req),
+      ignorarBloqueio: body.ignorar_bloqueio,
+      confirmarRetorno: body.confirmar_retorno,
+      confirmarDiaEspecial: body.confirmar_dia_especial,
+    });
+    logRemarcacao(req.usuario!.id, r.a, "agendamento_trocado");
+    logRemarcacao(req.usuario!.id, r.b, "agendamento_trocado");
+    res.json(r);
+  }),
+);
+
+function logRemarcacao(
+  usuarioId: number,
+  r: { id: number; de: { data: string; hora: string; medico_id: number }; para: { data: string; hora: string; medico_id: number } },
+  acao: string,
+): void {
+  const pacienteId = getDb()
+    .prepare(`SELECT paciente_id FROM agendamentos WHERE id = ?`)
+    .pluck()
+    .get(r.id) as number | undefined;
+  logAcesso({
+    usuarioId,
+    pacienteId: pacienteId ?? null,
+    acao,
+    detalhe: `id=${r.id} ${r.de.data} ${r.de.hora} med=${r.de.medico_id} → ${r.para.data} ${r.para.hora} med=${r.para.medico_id}`,
+  });
+}
 
 const statusSchema = z.object({
   status: z.enum(STATUS),
@@ -960,9 +1281,14 @@ agendamentosRouter.patch(
           convenioId: body.convenio_id,
           origemNovos: "secretaria",
           usuarioId: req.usuario!.id,
+          reabrirConta: body.reabrir_conta === true,
         });
         await tentarPreparoZapAposEdicao(id);
     } catch (e) {
+      if (e instanceof AgendamentoAtendimentoError && e.codigo) {
+        res.status(409).json({ error: e.message, codigo: e.codigo, mensagem: e.message });
+        return;
+      }
       res.status(400).json({
         error: e instanceof Error ? e.message : "Não foi possível atualizar",
       });
@@ -1024,25 +1350,23 @@ agendamentosRouter.patch(
     const fichaId = body.ficha_template_id;
     if (fichaId != null) {
       try {
-        assertFichaPermitida(ag.medico_id, fichaId, "prontuario");
+        assertFichaPermitida(ag.medico_id, fichaId, "prontuario", {
+          exigirAtiva: fichaId !== ag.ficha_template_id,
+        });
       } catch (e) {
         if (handleFichaError(e, res)) return;
         throw e;
       }
     }
 
-    getDb()
-      .prepare(
-        `UPDATE agendamentos SET ficha_template_id = ?, updated_at = datetime('now', 'localtime')
-         WHERE id = ?`,
-      )
-      .run(fichaId, id);
-
-    const pr = getDb()
+    const db = getDb();
+    const pr = db
       .prepare(`SELECT * FROM prontuarios WHERE agendamento_id = ?`)
       .get(id) as
       | {
           id: number;
+          ficha_template_id: number | null;
+          dados_json: string | null;
           queixa_principal: string | null;
           anamnese: string | null;
           exame_fisico: string | null;
@@ -1055,40 +1379,59 @@ agendamentosRouter.patch(
         }
       | undefined;
 
-    if (pr && fichaId != null) {
+    // B2 [4]: com prontuário em andamento, converte os dados para a ficha nova
+    // sem perder nada (recusa se algum campo preenchido não existir na nova).
+    let prontuarioNovo: { fichaId: number; dados: string } | null = null;
+    let prontuarioEditavel = false;
+    if (pr) {
       try {
         assertConsultaEditavel(pr.id);
-        const ficha = getFichaTemplateOrThrow(fichaId);
-        const campos = camposFromTemplate(ficha);
-        const dados = legadoParaDadosJson(pr, campos);
-        getDb()
-          .prepare(
-            `UPDATE prontuarios SET ficha_template_id = ?, dados_json = ? WHERE id = ?`,
-          )
-          .run(fichaId, dadosJsonToString(dados), pr.id);
-      } catch (e) {
-        if (e instanceof FichaProntuarioError) {
-          if (handleFichaError(e, res)) return;
-        }
-        if (
-          e instanceof Error &&
-          e.message.includes("Consulta finalizada")
-        ) {
-          /* prontuário encerrado — só agenda atualizada */
-        } else {
-          throw e;
-        }
-      }
-    } else if (pr && fichaId == null) {
-      try {
-        assertConsultaEditavel(pr.id);
-        getDb()
-          .prepare(`UPDATE prontuarios SET ficha_template_id = NULL WHERE id = ?`)
-          .run(pr.id);
+        prontuarioEditavel = true;
       } catch {
-        /* consulta encerrada */
+        /* consulta encerrada: só a agenda muda, como antes */
       }
     }
+    if (pr && prontuarioEditavel) {
+      try {
+        // "Sem ficha" no horário = ficha padrão da clínica no prontuário.
+        const destinoId = fichaId ?? resolveFichaTemplateIdFromAgendamento({});
+        assertFichaPermitida(ag.medico_id, destinoId, "prontuario");
+        if (destinoId !== pr.ficha_template_id) {
+          const camposNovos = camposFromTemplate(getFichaTemplateOrThrow(destinoId));
+          let camposAntigos: ReturnType<typeof camposFromTemplate> = [];
+          if (pr.ficha_template_id != null) {
+            try {
+              camposAntigos = camposFromTemplate(getFichaTemplateOrThrow(pr.ficha_template_id));
+            } catch {
+              /* ficha antiga removida: rótulos ficam pelo id */
+            }
+          }
+          const dados = converterDadosParaNovaFicha(pr, camposNovos, camposAntigos);
+          prontuarioNovo = { fichaId: destinoId, dados: dadosJsonToString(dados) };
+        }
+      } catch (e) {
+        if (handleFichaError(e, res)) return;
+        throw e;
+      }
+    }
+
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE agendamentos SET ficha_template_id = ?, updated_at = datetime('now', 'localtime')
+         WHERE id = ?`,
+      ).run(fichaId, id);
+      if (pr && prontuarioNovo) {
+        db.prepare(
+          `UPDATE prontuarios SET ficha_template_id = ?, dados_json = ? WHERE id = ?`,
+        ).run(prontuarioNovo.fichaId, prontuarioNovo.dados, pr.id);
+      }
+    })();
+    logAcesso({
+      usuarioId: req.usuario!.id,
+      pacienteId: (ag as { paciente_id?: number }).paciente_id ?? null,
+      acao: "agendamento_ficha_alterada",
+      detalhe: `id=${id} ficha=${fichaId ?? "padrao"}${pr ? ` prontuario=${pr.id}${prontuarioNovo ? " convertido" : ""}` : ""}`,
+    });
 
     const row = getDb()
       .prepare(
@@ -1187,9 +1530,19 @@ agendamentosRouter.patch(
       }
     }
 
+    const saindoDoAtendimento =
+      novo !== row.status &&
+      (novo === "cancelado" ||
+        novo === "nao_compareceu" ||
+        (novo === "agendado" && row.status === "presente"));
+
     const db = getDb();
+    let contaCanceladaId: number | null = null;
     try {
       db.transaction(() => {
+        if (saindoDoAtendimento) {
+          contaCanceladaId = prepararSaidaDoAtendimento(id, db).conta_cancelada_id;
+        }
         const ch = db
           .prepare(
             `UPDATE agendamentos SET status = ?, updated_at = datetime('now', 'localtime')
@@ -1204,6 +1557,10 @@ agendamentosRouter.patch(
         }
       })();
     } catch (e) {
+      if (e instanceof AgendamentoAtendimentoError) {
+        res.status(409).json({ error: e.message, codigo: e.codigo });
+        return;
+      }
       const msg = e instanceof Error ? e.message : "";
       if (msg === "STATUS_CONFLICT") {
         res.status(409).json({
@@ -1244,7 +1601,7 @@ agendamentosRouter.patch(
       usuarioId: req.usuario!.id,
       pacienteId: row.paciente_id,
       acao: "agendamento_status",
-      detalhe: `id=${id} ${row.status}→${novo}`,
+      detalhe: `id=${id} ${row.status}→${novo}${contaCanceladaId ? ` conta_cancelada=${contaCanceladaId}` : ""}`,
     });
     res.json(enriquecerLinha(updated as { id: number }));
   }),
@@ -1255,9 +1612,12 @@ agendamentosRouter.delete(
   requireModulo("agenda"),
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
-    const ag = getDb()
-      .prepare(`SELECT id, medico_id FROM agendamentos WHERE id = ?`)
-      .get(id) as { id: number; medico_id: number } | undefined;
+    const db = getDb();
+    const ag = db
+      .prepare(`SELECT id, medico_id, paciente_id, status FROM agendamentos WHERE id = ?`)
+      .get(id) as
+      | { id: number; medico_id: number; paciente_id: number; status: Status }
+      | undefined;
     if (!ag) {
       res.status(404).json({ error: "Agendamento não encontrado" });
       return;
@@ -1269,11 +1629,82 @@ agendamentosRouter.delete(
       res.status(403).json({ error: "Agendamento de outro médico" });
       return;
     }
-    getDb()
-      .prepare(
-        `UPDATE agendamentos SET status = 'cancelado', updated_at = datetime('now', 'localtime') WHERE id = ?`,
-      )
-      .run(id);
+    if (ag.status === "cancelado") {
+      res.json({ ok: true });
+      return;
+    }
+    // Mesmas regras do PATCH /status: só cancela de "agendado" ou "presente".
+    if (!(TRANSICOES[ag.status] ?? []).includes("cancelado")) {
+      res.status(409).json({
+        error: `Não é possível cancelar um horário com status "${ag.status}".`,
+      });
+      return;
+    }
+    let contaCanceladaId: number | null = null;
+    try {
+      db.transaction(() => {
+        contaCanceladaId = prepararSaidaDoAtendimento(id, db).conta_cancelada_id;
+        const ch = db
+          .prepare(
+            `UPDATE agendamentos SET status = 'cancelado', updated_at = datetime('now', 'localtime')
+             WHERE id = ? AND status = ?`,
+          )
+          .run(id, ag.status);
+        if (ch.changes === 0) throw new Error("STATUS_CONFLICT");
+      })();
+    } catch (e) {
+      if (e instanceof AgendamentoAtendimentoError) {
+        res.status(409).json({ error: e.message, codigo: e.codigo });
+        return;
+      }
+      if (e instanceof Error && e.message === "STATUS_CONFLICT") {
+        res.status(409).json({
+          error: "Status do agendamento foi alterado — recarregue e tente novamente",
+        });
+        return;
+      }
+      throw e;
+    }
+    logAcesso({
+      usuarioId: req.usuario!.id,
+      pacienteId: ag.paciente_id,
+      acao: "agendamento_status",
+      detalhe: `id=${id} ${ag.status}→cancelado (excluir)${contaCanceladaId ? ` conta_cancelada=${contaCanceladaId}` : ""}`,
+    });
     res.json({ ok: true });
+  }),
+);
+
+// Resultado (laudo) dos exames do horário — Sala de espera (Finalizar exame / Exames).
+agendamentosRouter.get(
+  "/:id/exames-resultado",
+  podeResultadoExame,
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const { paciente_id } = pacienteDoAgendamento(id);
+    assertMedicoVinculoPaciente(req, paciente_id);
+    res.json(listarExamesResultadoAgendamento(id));
+  }),
+);
+
+agendamentosRouter.patch(
+  "/:id/exames-resultado/:itemId",
+  podeResultadoExame,
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const itemId = Number(req.params.itemId);
+    const body = z
+      .object({ exame_anexo_id: z.number().int().positive().nullable() })
+      .parse(req.body);
+    const { paciente_id } = pacienteDoAgendamento(id);
+    assertMedicoVinculoPaciente(req, paciente_id);
+    const r = vincularResultadoExameAgendamento(id, itemId, body.exame_anexo_id);
+    logAcesso({
+      usuarioId: req.usuario!.id,
+      pacienteId: paciente_id,
+      acao: "exame_resultado_vinculado",
+      detalhe: `agendamento=${id} item=${itemId} exame=${body.exame_anexo_id ?? "nenhum"}`,
+    });
+    res.json(r);
   }),
 );

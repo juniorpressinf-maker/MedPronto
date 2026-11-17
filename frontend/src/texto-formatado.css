@@ -1,0 +1,88 @@
+/* Campo de ficha "Texto formatado" (editor). Prefixo .tf- */
+.tf-editor {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+.tf-barra {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+  border-radius: 8px 8px 0 0;
+}
+.tf-botao {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  opacity: 1;
+}
+.tf-botao svg {
+  stroke-width: 2.5;
+}
+.tf-botao:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.tf-botao--ativo {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.tf-separador {
+  width: 1px;
+  height: 1.4rem;
+  margin: 0 0.25rem;
+  background: var(--border);
+}
+/* Folha grande que cresce com o texto */
+.tf-editavel {
+  min-height: 55vh;
+  padding: 1rem 1.25rem;
+  outline: none;
+}
+.tf-editor--leitura .tf-editavel {
+  min-height: 0;
+}
+.tf-conteudo {
+  font-size: 0.95rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.tf-conteudo p {
+  margin: 0 0 0.5rem;
+}
+.tf-conteudo h3 {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.tf-conteudo ul,
+.tf-conteudo ol {
+  margin: 0 0 0.5rem;
+  padding-left: 1.5rem;
+}
+.tf-conteudo ul {
+  list-style: disc;
+}
+.tf-conteudo ol {
+  list-style: decimal;
+}
+.tf-conteudo li > p {
+  margin: 0;
+}

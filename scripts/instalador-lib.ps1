@@ -415,10 +415,16 @@ function New-MedProntoProgress {
     $form.StartPosition = 'CenterScreen'
     $form.FormBorderStyle = 'FixedDialog'
     $form.MaximizeBox = $false
-    $form.MinimizeBox = $false
-    $form.TopMost = $true
-    $form.ControlBox = $false
+    $form.MinimizeBox = $true
+    $form.TopMost = $false
+    $form.ControlBox = $true
+    $form.ShowInTaskbar = $true
     $form.BackColor = [System.Drawing.Color]::White
+    # Permite minimizar, mas bloqueia o X (so fecha via Close-MedProntoProgress)
+    $form.Add_FormClosing({
+        param($s, $e)
+        if ($s.Tag -ne 'fechar') { $e.Cancel = $true }
+    })
 
     $header = New-Object System.Windows.Forms.Panel
     $header.Location = New-Object System.Drawing.Point(0, 0)
@@ -532,6 +538,7 @@ function Set-MedProntoProgressDetail {
 function Close-MedProntoProgress {
     param($Progress)
     if ($Progress -and $Progress.Form) {
+        $Progress.Form.Tag = 'fechar'
         $Progress.Form.Close()
         $Progress.Form.Dispose()
     }
@@ -864,6 +871,34 @@ function Copy-MedProntoPayload {
         }
         Stop-MedPronto -InstallDir $InstallDir
         Start-Sleep -Seconds 2
+    }
+}
+
+# Arquivos de versoes antigas que nao podem ficar no cliente
+# (ex.: script manual em database\ que o migrador rodava como migracao).
+function Remove-MedProntoArquivosObsoletos {
+    param([string]$InstallDir)
+    foreach ($rel in @(
+            'database\limpar_chat_interno.sql',
+            'database\medpronto.db',
+            'limpar-chat.js',
+            'limpar-e-recriar-chat.js',
+            'recompilar-chat.bat',
+            'recompilar-chat-forcado.bat',
+            # Agenda antiga, removida na A8 (Agenda Nova). Se ficar, o build quebra (imports apagados).
+            'frontendsrcpagesAgendaPage.tsx',
+            'frontendsrcpagesAgendaMesPage.tsx',
+            'frontendsrccomponentsAgendaCalendarioMes.tsx',
+            'frontendsrccomponentsAgendaMesMedicosCard.tsx',
+            'frontendsrclibagendaCalendario.ts',
+            'frontendsrclibdiasEspeciais.ts',
+            'frontendsrclibagendaNav.ts',
+            'frontendsrcagenda-folha.css'
+        )) {
+        $p = Join-Path $InstallDir $rel
+        if (Test-Path -LiteralPath $p) {
+            Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 /**
  * Aceite S1 — ZIP de restore sem zip-slip; usuarios.ativo no request.
  */
+import "./lib/exigirCopia.js"; // trava: nunca no banco real (rodar via npm run test:*)
 import AdmZip from "adm-zip";
 import Database from "better-sqlite3";
 import fs from "node:fs";
@@ -16,7 +17,8 @@ import {
 } from "../src/utils/backup.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.resolve(__dirname, "../../data/medpronto.db");
+// A7: DATABASE_PATH permite rodar numa cópia (scripts/test-a7-regressao.mjs); sem ele, banco real como antes.
+const dbPath = process.env.DATABASE_PATH || path.resolve(__dirname, "../../data/medpronto.db");
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(`FALHOU: ${msg}`);

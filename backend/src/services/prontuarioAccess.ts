@@ -37,6 +37,7 @@ export function getDocumentoContext(prontuarioId: number) {
     .prepare(
       `SELECT pr.*, p.nome AS paciente_nome, p.data_nasc AS paciente_nasc, p.cpf AS paciente_cpf,
               u.nome AS medico_nome, u.crm AS medico_crm,
+              u.impressao_timbrado, u.timbrado_topo_mm, u.timbrado_rodape_mm,
               c.nome AS clinica_nome, c.telefone AS clinica_telefone, c.endereco AS clinica_endereco,
               c.logo_path AS clinica_logo
        FROM prontuarios pr
@@ -53,6 +54,9 @@ export function getDocumentoContext(prontuarioId: number) {
         paciente_cpf: string | null;
         medico_nome: string;
         medico_crm: string | null;
+        impressao_timbrado: number;
+        timbrado_topo_mm: number;
+        timbrado_rodape_mm: number;
         clinica_nome: string | null;
         clinica_telefone: string | null;
         clinica_endereco: string | null;

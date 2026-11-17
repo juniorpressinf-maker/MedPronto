@@ -27,6 +27,10 @@ $maxWaitSec = 240
 
 $script:lastNotifyTick = 0
 $script:lastNotifyMsg = ''
+$script:splashOk = $false
+$script:step = 0
+# Lido pelo splash (file://) via <script> - funciona antes da API subir
+$SplashStatusJs = Join-Path $DataDir 'startup-status.js'
 
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
@@ -43,14 +47,46 @@ function Write-Log([string]$Msg) {
     }
 }
 
-function Write-Status([string]$Message) {
-    Set-Content -LiteralPath $StatusFile -Value "[$(Get-Date -Format 'HH:mm:ss')] $Message" -Encoding UTF8
+function Write-SplashStatus([string]$Message, [string]$State = 'running') {
+    try {
+        $obj = [ordered]@{
+            step    = $script:step
+            total   = 5
+            message = $Message
+            state   = $State
+            time    = (Get-Date -Format 'HH:mm:ss')
+            pid     = $PID
+        }
+        $json = $obj | ConvertTo-Json -Compress
+        [System.IO.File]::WriteAllText(
+            $SplashStatusJs,
+            "window.__mpStatus=$json;",
+            [System.Text.UTF8Encoding]::new($false)
+        )
+    } catch { }
+}
+
+function Write-Status([string]$Message, [string]$State = 'running') {
+    try {
+        Set-Content -LiteralPath $StatusFile -Value "[$(Get-Date -Format 'HH:mm:ss')] $Message" -Encoding UTF8
+    } catch { }
+    Write-SplashStatus $Message $State
+}
+
+# Passo visivel no splash: 1 preparar | 2 componentes | 3 atualizar | 4 servidor | 5 login
+function Set-Step([int]$Step, [string]$Message) {
+    $script:step = $Step
+    Write-Status $Message
+    Write-Log "[passo $Step/5] $Message"
+    Ensure-SplashAlive -Force
 }
 
 function Notify-User([string]$Message, [int]$ToastSec = 5, [switch]$Force) {
     Write-Status $Message
     Write-Log $Message
     if (-not $Silent) { return }
+    # Com splash aberto, o progresso aparece nele - sem popups do Windows
+    if ($script:splashOk) { return }
     $tick = [DateTime]::UtcNow.Ticks
     if (-not $Force -and $script:lastNotifyMsg -eq $Message) { return }
     if (-not $Force -and ($tick - $script:lastNotifyTick) -lt (3 * [TimeSpan]::TicksPerSecond)) { return }
@@ -73,9 +109,12 @@ function Show-Error([string]$Message) {
         if ($lines) { $tail = ($lines -join [Environment]::NewLine) }
     }
     Set-Content -LiteralPath $ErrFile -Value "$Message`r`n`r`n$tail" -Encoding UTF8
+    Write-Status $Message 'error'
     Clear-StartupLock
 
-    if ($Silent) {
+    if ($Silent -and $script:splashOk) {
+        # Erro aparece no proprio splash (com orientacao) - sem popup
+    } elseif ($Silent) {
         $ws = New-Object -ComObject WScript.Shell
         $ws.Popup($Message, 20, $AppName, 48) | Out-Null
     } else {
@@ -118,12 +157,15 @@ function Open-Splash {
     try {
         & $splashScript -Root $Root
         if ($LASTEXITCODE -eq 0) {
-            Write-Log 'Splash de inicializacao aberto.'
+            Write-Log 'Splash de inicializacao aberto (vira a tela de login sozinho).'
+            $script:splashOk = $true
         } else {
-            Write-Log 'AVISO: nao foi possivel abrir splash.'
+            Write-Log 'AVISO: nao foi possivel abrir splash - login abre depois.'
+            $script:splashOk = $false
         }
     } catch {
         Write-Log ('AVISO: splash ignorado - ' + $_.Exception.Message)
+        $script:splashOk = $false
     }
 }
 
@@ -154,10 +196,18 @@ function Open-Browser {
     Write-Log 'Navegador: login aberto.'
 }
 
+# Padrao Estnovo: o splash vira a tela de login na mesma janela.
+# Navegador separado so quando o splash nao foi aberto (servidor ja rodando / falha).
 function Finish-Startup {
-    Write-Status 'Abrindo tela de login...'
-    Open-Browser
-    Close-Splash
+    param([switch]$SkipBrowser)
+    $script:step = 5
+    Write-Status 'Abrindo tela de login...' 'ready'
+    if ($NoBrowser -or $SkipBrowser) { return }
+    # Splash vira o login sozinho - mas se nao houver janela do MedPronto, abre o login
+    if (-not $script:splashOk -or -not (Test-AppWindowOpen)) {
+        if ($script:splashOk) { Write-Log 'AVISO: nenhuma janela aberta no fim - abrindo login.' }
+        Open-Browser
+    }
 }
 
 function Test-LockStale {
@@ -188,11 +238,39 @@ function Clear-StartupLock {
     Remove-Item -LiteralPath $LockFile -Force -ErrorAction SilentlyContinue
 }
 
+# A API caiu ao iniciar (ex.: erro de migracao)? O _api-loop anota cada queda.
+function Get-ApiCrashError {
+    $f = Join-Path $DataDir '_api-crash.txt'
+    if (-not (Test-Path -LiteralPath $f)) { return $null }
+    $n = @(Get-Content -LiteralPath $f -ErrorAction SilentlyContinue).Count
+    if ($n -lt 2) { return $null }
+    $detail = ''
+    if (Test-Path -LiteralPath $ApiLog) {
+        $err = @(Get-Content -LiteralPath $ApiLog -Tail 60 -ErrorAction SilentlyContinue |
+            Where-Object { $_ -match 'ERRO|Error' } | Select-Object -Last 2)
+        if ($err.Count -gt 0) { $detail = ($err -join ' | ').Trim() }
+    }
+    if ($detail.Length -gt 300) { $detail = $detail.Substring(0, 300) + '...' }
+    if (-not $detail) { $detail = 'Detalhes em data\api.log' }
+    return "O servidor do $AppName nao conseguiu iniciar.`n$detail"
+}
+
 function Wait-ForServers([int]$MaxSeconds) {
     for ($i = 1; $i -le $MaxSeconds; $i++) {
         if (Test-ServersReady) { return $true }
+        $crash = Get-ApiCrashError
+        if ($crash) {
+            # Para o loop (senao fica reiniciando escondido) e mostra o erro no splash
+            Write-Log "[start] API caiu ao iniciar"
+            Stop-OldServers
+            Show-Error $crash
+        }
+        Ensure-SplashAlive
         if ($i -eq 15) {
-            Notify-User 'Ainda iniciando... pode levar ate 2 minutos.' 5
+            Notify-User 'Servidor ainda subindo... pode levar ate 2 minutos.' 5
+        }
+        if ($i -eq 60) {
+            Notify-User 'Quase la... carregando banco de dados e servicos.' 5
         }
         Start-Sleep -Seconds 1
     }
@@ -223,16 +301,46 @@ function Get-NodeTools {
     return $null
 }
 
+# Para API/tunel SEM fechar o navegador (o splash ja esta aberto nele)
 function Stop-OldServers {
     Write-Log '[0] encerrando servidores antigos...'
-    Write-Status 'Preparando ambiente...'
-    $parar = Join-Path $Root 'parar.bat'
+    $parar = Join-Path $PSScriptRoot 'parar-medpronto.ps1'
     if (Test-Path -LiteralPath $parar) {
-        $env:MEDPRONTO_QUIET = '1'
-        & cmd.exe /c "`"$parar`"" *> $null
-        Remove-Item Env:MEDPRONTO_QUIET -ErrorAction SilentlyContinue
+        & $parar -InstallDir $Root -KeepBrowser *> $null
     }
-    Start-Sleep -Seconds 2
+    Start-Sleep -Seconds 1
+    Ensure-SplashAlive -Force
+}
+
+# Fecha janelas antigas do MedPronto - chamado ANTES de abrir o splash
+function Close-OldWindows {
+    $parar = Join-Path $PSScriptRoot 'parar-medpronto.ps1'
+    if (Test-Path -LiteralPath $parar) {
+        & $parar -InstallDir $Root -BrowserOnly *> $null
+    }
+}
+
+function Test-AppWindowOpen {
+    try {
+        $all = @(Get-CimInstance Win32_Process -Filter "Name='msedge.exe' OR Name='chrome.exe'" -ErrorAction SilentlyContinue)
+        foreach ($b in $all) {
+            $c = [string]$b.CommandLine
+            if ($c -and $c.IndexOf('edge-medpronto', [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+        }
+    } catch { return $true }
+    return $false
+}
+
+# Vigia: o cliente nunca fica sem janela. Se o splash sumiu, reabre.
+$script:lastSplashCheck = [DateTime]::MinValue
+function Ensure-SplashAlive([switch]$Force) {
+    if ($NoBrowser -or -not $script:splashOk) { return }
+    if (-not $Force -and ((Get-Date) - $script:lastSplashCheck).TotalSeconds -lt 3) { return }
+    $script:lastSplashCheck = Get-Date
+    if (Test-AppWindowOpen) { return }
+    Write-Log 'AVISO: janela do MedPronto sumiu - reabrindo splash.'
+    $splashScript = Join-Path $PSScriptRoot 'open_medpronto_splash.ps1'
+    try { & $splashScript -Root $Root | Out-Null } catch { }
 }
 
 function Ensure-Build([hashtable]$Tools) {
@@ -245,19 +353,40 @@ function Ensure-Build([hashtable]$Tools) {
         return $needs
     }
 
-    if (-not $needs.Api) {
-        Write-Status 'Atualizando interface...'
-        Notify-User 'Atualizando interface... Aguarde.' 8 -Force
-    } else {
-        Write-Status 'Preparando sistema...'
-        Notify-User 'Preparando sistema... Aguarde.' 8 -Force
-    }
-
+    Notify-User 'Instalando atualizacao do sistema (1-2 min)...' 8 -Force
     Write-Log '[build] codigo alterado - recompilando...'
-    Ensure-MedProntoBuild -InstallDir $Root -Tools $Tools -Log {
-        param($m)
-        Write-Log "[build] $m"
-    } | Out-Null
+    Invoke-BuildSafe $Tools | Out-Null
+    return $needs
+}
+
+# Compila com 1 nova tentativa. Se falhar e existir versao anterior compilada,
+# segue com ela (nao trava o cliente). Retorna $true se compilou.
+function Invoke-BuildSafe([hashtable]$Tools) {
+    for ($attempt = 1; $attempt -le 2; $attempt++) {
+        try {
+            Ensure-MedProntoBuild -InstallDir $Root -Tools $Tools -Log {
+                param($m)
+                Write-Log "[build] $m"
+            } | Out-Null
+            Write-Log '[build] concluido.'
+            return $true
+        } catch {
+            Write-Log "[build] FALHOU (tentativa $attempt): $($_.Exception.Message)"
+            if ($attempt -lt 2) {
+                Write-Status 'Atualizacao demorou - tentando de novo...'
+                Start-Sleep -Seconds 2
+            }
+        }
+    }
+    $hasWeb = Test-Path -LiteralPath (Join-Path $Root 'frontend\dist\index.html')
+    $hasApi = Test-Path -LiteralPath (Join-Path $Root 'backend\dist\index.js')
+    if ($hasWeb -and $hasApi) {
+        Write-Log '[build] usando versao anterior ja compilada.'
+        Write-Status 'Atualizacao adiada - abrindo versao atual...'
+        Start-Sleep -Seconds 1
+        return $false
+    }
+    throw 'Nao foi possivel preparar o sistema (compilacao falhou). Veja data\medpronto.log.'
 }
 
 function Sync-BuildIfStale([hashtable]$Tools) {
@@ -267,20 +396,14 @@ function Sync-BuildIfStale([hashtable]$Tools) {
     $needs = Test-MedProntoNeedsBuild -InstallDir $Root
     if (-not $needs.Web -and -not $needs.Api) { return $false }
 
-    Write-Status 'Atualizando sistema...'
-    Notify-User 'Compilando atualizacoes (ate 2 min)... Aguarde.' 12 -Force
+    # Atualizacao com servidor ativo: abre o splash para o cliente acompanhar
+    $script:step = 3
+    Write-Status 'Instalando atualizacao do sistema (1-2 min)...'
+    if (-not $NoBrowser) { Open-Splash }
     Write-Log '[build] alteracoes detectadas com servidor ativo - recompilando...'
 
-    Ensure-MedProntoBuild -InstallDir $Root -Tools $Tools -Log {
-        param($m)
-        Write-Log "[build] $m"
-        if ($m) {
-            Write-Status $m
-            Notify-User "$m" 6 -Force
-        }
-    } | Out-Null
-
-    return $needs.Api
+    $built = Invoke-BuildSafe $Tools
+    return ($built -and $needs.Api)
 }
 
 function Ensure-Dependencies([hashtable]$Tools) {
@@ -289,8 +412,7 @@ function Ensure-Dependencies([hashtable]$Tools) {
     $env:PATH = "$($Tools.NodeDir);$env:PATH"
 
     if (-not (Test-Path -LiteralPath (Join-Path $Root 'node_modules'))) {
-        Write-Status 'Instalando componentes...'
-        Notify-User 'Instalando componentes... Aguarde.' 8 -Force
+        Notify-User 'Instalando componentes (primeira vez, pode demorar)...' 8 -Force
         Write-Log '[1] npm install...'
         & $npm install 2>&1 | ForEach-Object { Write-Log $_ }
         if ($LASTEXITCODE -ne 0) { throw 'npm install falhou' }
@@ -299,6 +421,7 @@ function Ensure-Dependencies([hashtable]$Tools) {
 
     & $node -e "const D=require('better-sqlite3'); new D(':memory:'); console.log('ok')" 2>$null
     if ($LASTEXITCODE -ne 0) {
+        Write-Status 'Ajustando componente do banco de dados...'
         Write-Log '[1] recompilando better-sqlite3...'
         & $npm rebuild better-sqlite3 2>&1 | ForEach-Object { Write-Log $_ }
         if ($LASTEXITCODE -ne 0) { throw 'rebuild better-sqlite3 falhou' }
@@ -307,8 +430,7 @@ function Ensure-Dependencies([hashtable]$Tools) {
 }
 
 function Start-Servers([hashtable]$Tools) {
-    Write-Status 'Iniciando servidores...'
-    Notify-User 'Iniciando servidores... aguarde.' 6 -Force
+    Set-Step 4 'Ligando o servidor do MedPronto...'
     $npm = $Tools.Npm
     $qRoot = "`"$Root`""
     $qApiLog = "`"$ApiLog`""
@@ -325,9 +447,11 @@ call $qNpm run start -w backend >> $qApiLog 2>&1
 set RC=!ERRORLEVEL!
 if "!RC!"=="42" (timeout /t 2 /nobreak >nul & goto loop_api)
 if exist "$Root\data_restore_pending\" (timeout /t 2 /nobreak >nul & goto loop_api)
+echo !RC!>> "$DataDir\_api-crash.txt"
 timeout /t 3 /nobreak >nul
 goto loop_api
 "@
+    Remove-Item -LiteralPath (Join-Path $DataDir '_api-crash.txt') -Force -ErrorAction SilentlyContinue
     $apiScript = Join-Path $DataDir '_api-loop.cmd'
     Set-Content -LiteralPath $apiScript -Value "@echo off`r`nsetlocal enabledelayedexpansion`r`n$apiLoop" -Encoding ASCII
     Write-Log '[start] MedPronto :3021 (producao)'
@@ -338,8 +462,11 @@ goto loop_api
 }
 
 function Start-FullStack([hashtable]$Tools) {
+    Set-Step 1 'Encerrando sessoes anteriores...'
     Stop-OldServers
+    Set-Step 2 'Verificando componentes...'
     Ensure-Dependencies $tools
+    Set-Step 3 'Verificando atualizacoes...'
     Ensure-Build $tools | Out-Null
 
     if (-not (Test-Path -LiteralPath (Join-Path $Root '.env'))) {
@@ -374,6 +501,7 @@ if (Test-ServersReady) {
                 $apiRebuilt = Sync-BuildIfStale $tools
                 if ($apiRebuilt) {
                     Write-Log '[build] backend atualizado - reiniciando servidor...'
+                    Write-Status 'Reiniciando servidor com a atualizacao...'
                     Stop-OldServers
                     Start-Servers $tools
                     if (-not (Wait-ForServers 90)) {
@@ -394,14 +522,14 @@ if (Test-LockActive) {
     Write-Log 'Outro inicio em andamento - aguardando...'
     Write-Status 'Aguardando inicio em andamento...'
     Notify-User "$AppName ja esta iniciando... aguarde." 6 -Force
-    if (-not $NoBrowser) { Open-Splash }
 
+    # O splash do primeiro clique ja vira o login - nao abrir outra janela
     if (Wait-ForServers 90) {
-        Finish-Startup
+        Finish-Startup -SkipBrowser
         exit 0
     }
     if (Test-ServersReady) {
-        Finish-Startup
+        Finish-Startup -SkipBrowser
         exit 0
     }
     Show-Error "Nao foi possivel abrir o ${AppName}.`nO sistema pode ainda estar subindo - aguarde 1-2 min e tente de novo."
@@ -411,9 +539,14 @@ Set-StartupLock
 
 try {
     Write-Log "=== MedPronto launcher (PID $PID) ==="
-    Write-Status "Preparando $AppName..."
-    Notify-User "Verificando $AppName..." 4 -Force
-    if (-not $NoBrowser) { Open-Splash }
+    # Zera o status ANTES do splash abrir (evita ler erro/pronto da abertura anterior)
+    $script:step = 0
+    Write-Status "Iniciando $AppName..."
+    if (-not $NoBrowser) {
+        Close-OldWindows
+        Open-Splash
+    }
+    if (-not $script:splashOk) { Notify-User "Iniciando $AppName... aguarde." 4 -Force }
 
     $tools = Get-NodeTools
     if (-not $tools) {
@@ -423,7 +556,6 @@ try {
 
     $ok = Start-FullStack $tools
     if ($ok -or (Test-ServersReady)) {
-        Write-Status 'Quase pronto...'
         Finish-Startup
         exit 0
     }

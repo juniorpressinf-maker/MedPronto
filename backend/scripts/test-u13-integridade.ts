@@ -1,3 +1,5 @@
+import "./lib/exigirCopia.js"; // trava: nunca no banco real (rodar via npm run test:*)
+import { limparResiduos2099 } from "./lib/limparResiduos2099.js";
 /**
  * Aceite U13 — triggers de vínculo horário↔conta e suíte dos casos da unificação.
  */
@@ -24,7 +26,8 @@ import {
 } from "../src/services/whatsappService.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.resolve(__dirname, "../../data/medpronto.db");
+// A7: DATABASE_PATH permite rodar numa cópia (scripts/test-a7-regressao.mjs); sem ele, banco real como antes.
+const dbPath = process.env.DATABASE_PATH || path.resolve(__dirname, "../../data/medpronto.db");
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(`FALHOU: ${msg}`);
@@ -44,6 +47,7 @@ function assertThrows(fn: () => void, fragment: string): void {
 async function main(): Promise<void> {
   runMigrations();
   const db = new Database(dbPath);
+  limparResiduos2099(db); // resíduos de execuções antigas (ano 2099)
   db.pragma("foreign_keys = ON");
 
   const paciente = db
@@ -348,10 +352,22 @@ async function main(): Promise<void> {
      WHERE agendamento_id = ? AND procedimento_id = ?`,
   ).run(agZap, procEndo!.id);
   const hoje = hojeIsoLocal();
-  db.prepare(`UPDATE agendamentos SET data = ?, hora = '23:55' WHERE id = ?`).run(
-    hoje,
-    agZap,
+  // Hora livre hoje para o mesmo paciente/médico (evita colidir com marcações reais).
+  const agZapRow = db
+    .prepare(`SELECT paciente_id, medico_id, data FROM agendamentos WHERE id = ?`)
+    .get(agZap) as { paciente_id: number; medico_id: number; data: string };
+  const ocupadas = new Set(
+    (
+      db
+        .prepare(`SELECT hora FROM agendamentos WHERE paciente_id = ? AND medico_id = ? AND data = ?`)
+        .all(agZapRow.paciente_id, agZapRow.medico_id, hoje) as { hora: string }[]
+    ).map((r) => r.hora),
   );
+  const horaLivre = Array.from({ length: 60 }, (_, i) => `23:${String(59 - i).padStart(2, "0")}`).find(
+    (h) => !ocupadas.has(h),
+  );
+  assert(!!horaLivre, "hora livre hoje para o teste");
+  db.prepare(`UPDATE agendamentos SET data = ?, hora = ? WHERE id = ?`).run(hoje, horaLivre, agZap);
   const logsNoDia = (
     db
       .prepare(`SELECT COUNT(*) AS n FROM log_whatsapp WHERE agendamento_id = ?`)
@@ -366,6 +382,9 @@ async function main(): Promise<void> {
       .get(agZap) as { n: number }
   ).n;
   assert(logsDepoisDia === logsNoDia, "nenhum log extra no dia do atendimento");
+
+  // Devolve para 2099: não deixa resíduo no dia de hoje.
+  db.prepare(`UPDATE agendamentos SET data = ? WHERE id = ?`).run(agZapRow.data, agZap);
 
   db.close();
   console.log("U13 aceite: todos os testes passaram.");

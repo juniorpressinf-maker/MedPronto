@@ -1,0 +1,212 @@
+MEDPRONTO — RELATÓRIO DE AUDITORIA DE INTEGRIDADE + BLOCO 1
+Data: 15/11/2026
+=====================================================================
+
+1. RESUMO
+---------------------------------------------------------------------
+- Auditoria técnica (somente leitura) da lógica de agenda, prontuário,
+  ASO, fichas e cobrança: 15 achados (3 críticos, 5 altos, 7 médios).
+- Bloco 1 (os 3 críticos) CORRIGIDO, testado e compilado.
+- Bloco 2 (os 5 altos) CORRIGIDO, testado e compilado.
+- Bloco 3 (os 7 médios) CORRIGIDO, testado e compilado.
+  => Os 15 achados da auditoria estão tratados.
+- Também entregue: Dashboard com Ticket médio, Faturado e comparação
+  com o período anterior (▲▼).
+- Build do backend e do frontend: OK.
+- Para ver as mudanças: fechar e abrir o atalho do MedPronto (ou Ctrl+F5).
+
+
+2. O QUE JÁ ESTAVA SÓLIDO (verificado)
+---------------------------------------------------------------------
+- Prontuário e ASO herdam paciente e médico do agendamento (não da tela).
+- Gatilhos do banco impedem trocar paciente/médico/agendamento depois de criado.
+- Um prontuário por horário, um ASO por horário, nunca os dois no mesmo horário.
+- Uma conta por horário; uma conta avulsa por paciente/dia.
+- Receitas, atestados, pedidos e exames presos ao prontuário do mesmo paciente.
+- Ficha pessoal de um médico não pode ser usada por outro.
+- Médico não lê nem edita prontuário de outro médico.
+- Remarcar/trocar horário com conta, prontuário ou ASO é bloqueado.
+
+
+3. BLOCO 1 — CORRIGIDO
+---------------------------------------------------------------------
+[1] Cancelar horário reabria consulta finalizada
+    Antes: "Excluir" agendamento cancelava qualquer status, sem conferir
+    nada e sem log. Um horário finalizado virava "cancelado" e o prontuário
+    (e receitas/atestados) voltava a ser editável.
+    Agora:
+    - Cancelar, marcar falta ou desfazer chegada seguem a MESMA regra
+      (tela de status e botão excluir).
+    - Horário com prontuário ou ASO: bloqueado.
+    - Conta em aberto sem pagamento: é cancelada junto (sai do caixa).
+    - Conta com pagamento ou fechada: bloqueado — resolver no caixa.
+    - Excluir não cancela mais horário finalizado / em atendimento.
+    - Toda exclusão vai para o log de auditoria.
+
+[2] Prontuário solto em horário cancelado / finalizar sem conferir
+    Antes: finalizar prontuário marcava o horário como "finalizado" mesmo
+    se ele estivesse cancelado; os passos não eram atômicos.
+    Agora:
+    - Só finaliza com o horário "em atendimento", tudo numa transação.
+    - Trava extra: consulta finalizada NUNCA volta a ser editável, mesmo
+      que o status do horário seja mudado depois.
+
+[3] Médico via ASO de outro médico
+    Antes: médico A, informando o horário do médico B, recebia o ASO de B
+    completo; podia criar ASO avulso em nome de outro médico; duplo clique
+    criava dois ASOs avulsos.
+    Agora:
+    - Médico só acessa/cria ASO do próprio horário e em seu próprio nome.
+    - ASO avulso em preenchimento do dia é reaproveitado (não duplica).
+
+Mudanças de comportamento que a equipe vai notar:
+- Se o médico devolver o paciente para "presente", precisa reabrir o
+  atendimento antes de finalizar.
+- Paciente que chegou e foi embora sem pagar pode ser cancelado: a conta
+  vazia some do caixa automaticamente.
+
+Arquivos alterados:
+- backend/src/services/agendamentoAtendimento.ts  (prepararSaidaDoAtendimento)
+- backend/src/routes/agendamentos.ts               (PATCH status e DELETE)
+- backend/src/routes/prontuarios.ts                (finalizar)
+- backend/src/services/consultaEncerrada.ts        (trava por finalização)
+- backend/src/routes/admissionais.ts               (POST /admissionais)
+
+
+4. TESTES
+---------------------------------------------------------------------
+Todos rodados numa CÓPIA do banco (o banco real não foi tocado),
+exceto o D1, que só lê.
+- test:b1  (novo) Bloco 1 pelas rotas HTTP ............ OK
+- test:d1  (novo) Ticket médio e comparativo ........... OK
+- test:a1-agenda (regressão) ........................... OK
+- test:a2-agenda (regressão) ........................... OK
+Observação: os testes antigos que gravam no banco real NÃO foram
+rodados; algum que cancele horário com conta/prontuário pode precisar
+de ajuste para as novas regras.
+
+
+5. BLOCO 2 — CORRIGIDO (alto)
+---------------------------------------------------------------------
+[4] Trocar a ficha com prontuário aberto apagava campos personalizados
+    Agora: os valores dos campos que existem nas duas fichas são levados
+    para a ficha nova. Se algum campo JÁ PREENCHIDO não existir na ficha
+    nova, a troca é bloqueada e a mensagem diz qual campo.
+    A troca vai para o log de auditoria.
+
+[5] Não existia cancelamento manual de conta
+    Agora: botão "Cancelar conta" na tela da conta, com motivo obrigatório.
+    - Só conta em aberto e sem pagamento.
+    - Conta de horário da agenda: só se o horário já foi cancelado ou
+      marcado como falta (cancelar o horário já cancela a conta vazia).
+    - O motivo fica na observação da conta e no log de auditoria.
+
+[6] Procedimentos do horário mudavam com prontuário/ASO aberto
+    Agora: com prontuário aberto, a lista precisa manter um procedimento
+    de consulta; com ASO aberto, precisa manter o ASO. Incluir exames
+    continua permitido.
+
+[7] O mesmo ASO podia ser cobrado em duas contas
+    Agora: bloqueado também ao incluir item (antes só ao editar).
+
+[8] Pagamento acima do saldo / sem estorno
+    Agora:
+    - Pagamento maior que o saldo pendente é recusado.
+    - Estorno: botão "Estornar" na lista de pagamentos (só ADMIN), com
+      motivo obrigatório. Regras: conta em aberto (reabra antes) e
+      pagamento registrado HOJE — estornar outro dia mudaria um caixa já
+      conferido. Recebimento de convênio não se estorna por aqui.
+    - Cada estorno grava no log: forma, valor, data, quem lançou e motivo.
+    - A lista de pagamentos agora aparece também com a conta em aberto.
+
+Arquivos alterados (Bloco 2):
+- backend/src/services/fichaProntuario.ts     (converterDadosParaNovaFicha)
+- backend/src/routes/agendamentos.ts           (PATCH /:id/ficha)
+- backend/src/services/agendamentoAtendimento.ts (procedimentos x clínico)
+- backend/src/services/cobrancaContas.ts       (ASO uma vez)
+- backend/src/services/cobrancaPagamentos.ts   (teto, estornar, cancelar)
+- backend/src/routes/cobranca.ts               (rotas estornar e cancelar)
+- frontend/src/lib/api.ts e pages/cobranca/CobrancaContaPage.tsx (botões)
+
+Testes do Bloco 2 (cópia do banco):
+- test:b2 (novo) ........................................ OK
+- Regressão: test:b1, test:a1-agenda, test:a2-agenda .... OK
+- Build backend e frontend .............................. OK
+
+Observação: o pedido do motivo (cancelar/estornar) usa a caixa simples
+do navegador; se quiser, troco por uma janela no padrão do sistema.
+
+
+6. BLOCO 3 — CORRIGIDO (médio)
+---------------------------------------------------------------------
+[9]  Banco agora impede (gatilho, migração 052) mudar paciente, médico
+     ou dia de horário com prontuário, ASO ou conta — vale até para
+     alteração feita fora do sistema. Horário sem vínculo remarca normal.
+
+[10] Modelo de ficha em uso: não deixa remover um campo que está
+     PREENCHIDO em atendimento em andamento (diz qual campo e quantos
+     atendimentos). Incluir campo continua livre. Consultas finalizadas
+     não são afetadas (guardam cópia do modelo).
+     Trocar o PDF da ficha PADRÃO é recusado (antes desativava a padrão).
+
+[11] Ficha/modelo ASO desativado não pode ser escolhido para horário novo
+     nem em troca de ficha. Quem já está usando continua salvando.
+
+[12] Datas da cobrança (item lançado, item realizado, fechamento da conta,
+     data padrão da baixa de convênio) agora no horário LOCAL.
+     Registros antigos continuam como foram gravados (em UTC, +3h).
+
+[13] Alteração de cadastro do paciente vai para o log de auditoria:
+     nome, nascimento, CPF e telefone com "antes → depois"; demais
+     campos, só o nome do campo. Exclusão também é registrada.
+
+[14] WhatsApp: se o telefone é de mais de um paciente com confirmação
+     pendente, o "SIM" NÃO confirma sozinho; a resposta aparece em todos
+     esses horários com o aviso "[Telefone de mais de um paciente —
+     confirme manualmente]".
+
+[15] Retificação de prontuário: na prática a API já impedia o duplo
+     clique (o servidor processa um pedido por vez). Mesmo assim, foi
+     incluído gatilho no banco garantindo uma retificação em andamento
+     por consulta.
+
+Extra: erros dos gatilhos do banco agora chegam à tela como mensagem
+clara (antes apareciam como "erro interno").
+
+Arquivos alterados (Bloco 3):
+- database/052_integridade_b3.sql (novo — aplicado ao abrir o sistema)
+- backend/src/routes/fichasTemplate.ts, services/fichaProntuario.ts
+- backend/src/routes/agendamentos.ts, routes/pacientes.ts
+- backend/src/services/whatsappRespostas.ts
+- backend/src/services/cobrancaContas.ts, cobrancaPagamentos.ts,
+  cobrancaReceberConvenio.ts, lib/diasUteis.ts
+- backend/src/middleware/errorHandler.ts
+- docs/INTEGRIDADE_VINCULOS.md (histórico)
+
+Testes do Bloco 3 (sempre em CÓPIA do banco):
+- test:b3 (novo) ............................................ OK
+- Regressão nova: b1, b2, a1-agenda, a2-agenda .............. OK
+- Testes antigos rodados contra cópia (DATABASE_PATH):
+  w1 (WhatsApp), u4, u6, u9, u10, u13, c5, i4, m5, a5 ......... OK
+  (u10 e m5 só falham se rodarem na mesma cópia depois de outros
+   testes — resíduo de teste, não defeito do sistema.)
+- Build backend e frontend .................................. OK
+
+
+7. DASHBOARD (entregue nesta sessão)
+---------------------------------------------------------------------
+- Novos cards: Faturado e Ticket médio (faturado ÷ contas do período).
+- Comparação ▲▼ com o período anterior de mesma duração em: atendimentos
+  finalizados, comparecimento (pontos percentuais), pacientes novos,
+  arrecadado, faturado e ticket médio.
+- Referência: relatórios do iClinic (receitas, fluxo de caixa, repasse,
+  faltas) e do iMedicina (gráficos financeiros e administrativos).
+
+Sugestões para depois (não são defeitos):
+- [FEITO] Caixa de "motivo" (cancelar conta / estornar) agora é a janela
+  do sistema, com campo de texto e botão liberado só com 3+ caracteres.
+- [FEITO] Testes antigos agora usam SEMPRE cópia do banco:
+  - Cada `npm run test:*` cria uma cópia nova, roda e apaga.
+  - Rodar o teste direto (sem npm) é BLOQUEADO — nunca toca o banco real.
+  - Novo: `npm run test:todos -w backend` roda os 34 testes com resumo.
+  - Resultado: 34/34 OK; banco real conferido antes/depois: idêntico.

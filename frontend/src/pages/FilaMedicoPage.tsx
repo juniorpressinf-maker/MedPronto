@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { DataIsoInput } from "../components/DataIsoInput";
+import { FinalizarExameDialog } from "../components/FinalizarExameDialog";
 import { ClinicaBrandMark } from "../components/ClinicaBrandMark";
 import { PageHeader } from "../components/PageHeader";
 import {
@@ -18,7 +19,6 @@ import {
   classeBadgeContaAgendamento,
   labelBadgeContaAgendamento,
   classeBotaoContaAgendamento,
-  labelBotaoContaAgendamento,
 } from "../lib/cobrancaFormat";
 import { corMedicoAgenda } from "../lib/corMedicoAgenda";
 import {
@@ -27,6 +27,7 @@ import {
 import {
   badgeClassModoClinico,
   horarioSoExame,
+  horarioTemExame,
   horarioTemAso,
   horarioTemProntuario,
   procedimentosDaLinha,
@@ -48,6 +49,7 @@ function Coluna({
   onNaoVeio,
   onAtender,
   onFinalizarExame,
+  onVerExames,
   onVerConsulta,
   onVerAdmissional,
   podeCobranca,
@@ -61,6 +63,7 @@ function Coluna({
   onNaoVeio?: (id: number) => void;
   onAtender?: (a: AgendamentoRow) => void;
   onFinalizarExame?: (a: AgendamentoRow) => void;
+  onVerExames?: (a: AgendamentoRow) => void;
   onVerConsulta?: (prontuarioId: number) => void;
   onVerAdmissional?: (admissionalId: number) => void;
   podeCobranca?: boolean;
@@ -79,10 +82,13 @@ function Coluna({
           const temProntuario = horarioTemProntuario(a);
           const abreClinico = temAso || temProntuario;
           const soExame = horarioSoExame(a);
+          const temExame = horarioTemExame(a);
           return (
             <li
               key={a.id}
               className="fila-coluna__item rounded-lg border p-2"
+              // Contorno na cor do médico: identifica de quem é o paciente na fila.
+              style={{ borderColor: corMedicoAgenda(a.medico_id), borderWidth: 4 }}
             >
               <div
                 className="fila-coluna__paciente font-medium"
@@ -165,6 +171,24 @@ function Coluna({
                     Finalizar
                   </button>
                 ) : null}
+                {/* Só-exame: "Finalizar" já abre o diálogo; aqui só depois de finalizado.
+                    Misto (consulta/ASO + exame): laudo a qualquer momento após o check-in. */}
+                {onVerExames &&
+                a.conta_id &&
+                (soExame
+                  ? a.status === "finalizado"
+                  : temExame &&
+                    (a.status === "presente" ||
+                      a.status === "em_atendimento" ||
+                      a.status === "finalizado")) ? (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => onVerExames(a)}
+                  >
+                    Exames
+                  </button>
+                ) : null}
                 {onVerConsulta && temProntuario && a.prontuario_id ? (
                   <button
                     type="button"
@@ -188,7 +212,7 @@ function Coluna({
                     to={linkCobrancaConta(a.conta_id, cobrancaReturn, "Voltar à fila")}
                     className={classeBotaoContaAgendamento(a.conta_status, "no-underline")}
                   >
-                    {labelBotaoContaAgendamento(a.conta_status)}
+                    Conta
                   </Link>
                 ) : null}
               </div>
@@ -203,20 +227,39 @@ function Coluna({
   );
 }
 
+/** Data/médico da sala de espera: lembrados até o fim do dia (ir ao prontuário e voltar não perde). */
+const CHAVE_FILTRO = "medpronto_fila_filtro";
+function lerFiltroLembrado(): { data?: string; medico_id?: number | "" } {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(CHAVE_FILTRO) ?? "null");
+    if (v && v.dia === hoje()) return v;
+  } catch {
+    /* sem storage */
+  }
+  return {};
+}
+
 export function FilaMedicoPage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const lembrado = lerFiltroLembrado();
   const msg = useMessageBox();
   const { me, permissoes } = useAuth();
   const dataUrl = searchParams.get("data");
-  const dataInicial = dataUrl && /^\d{4}-\d{2}-\d{2}$/.test(dataUrl) ? dataUrl : hoje();
+  const dataInicial = dataUrl && isDataIsoValida(dataUrl) ? dataUrl : (lembrado.data ?? hoje());
   const medicoUrl = searchParams.get("medico_id");
-  const medicoInicial =
-    medicoUrl && /^\d+$/.test(medicoUrl) ? Number(medicoUrl) : "";
+  const medicoInicial: number | "" =
+    medicoUrl && /^[0-9]+$/.test(medicoUrl) ? Number(medicoUrl) : dataUrl ? "" : (lembrado.medico_id ?? "");
   const [data, setData] = useState(dataInicial);
   const [grupos, setGrupos] = useState<Record<string, AgendamentoRow[]>>({});
   const [medicos, setMedicos] = useState<MedicoRow[]>([]);
   const [medicoId, setMedicoId] = useState<number | "">(medicoInicial);
+  // Laudo dos exames: modo "finalizar" (Aguardando/Em atendimento) ou só ver/anexar (Finalizados).
+  const [qtdLaudosPendentes, setQtdLaudosPendentes] = useState<number | null>(null);
+  const [dialogExames, setDialogExames] = useState<{
+    agendamento: AgendamentoRow;
+    finalizar: boolean;
+  } | null>(null);
 
   const ehMedicoPerfil = me?.perfil === "medico";
   const podeFiltrarQualquerMedico =
@@ -237,19 +280,22 @@ export function FilaMedicoPage() {
     medico_id: medicoId || undefined,
   });
 
+  // Estado -> endereço + lembrança do dia: voltar do prontuário/menu mantém data e médico.
   useEffect(() => {
-    const d = searchParams.get("data");
-    if (d && isDataIsoValida(d) && d !== data) {
-      setData(d);
+    const sp = new URLSearchParams(searchParams);
+    sp.set("data", data);
+    if (medicoId) sp.set("medico_id", String(medicoId));
+    else sp.delete("medico_id");
+    if (sp.toString() !== searchParams.toString()) setSearchParams(sp, { replace: true });
+    try {
+      sessionStorage.setItem(CHAVE_FILTRO, JSON.stringify({ dia: hoje(), data, medico_id: medicoId }));
+    } catch {
+      /* sem storage */
     }
-    const m = searchParams.get("medico_id");
-    if (m && /^\d+$/.test(m)) {
-      const n = Number(m);
-      if (n !== medicoId) setMedicoId(n);
-    } else if (!m && medicoId !== "") {
-      setMedicoId("");
-    }
-  }, [searchParams, data, medicoId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, medicoId]);
+
+  const voltarParaFila = `/medico/fila?data=${data}${medicoId ? `&medico_id=${medicoId}` : ""}`;
 
   const acoesAtender =
     temModulo(permissoes, "fila_medico") &&
@@ -267,6 +313,11 @@ export function FilaMedicoPage() {
             : undefined;
       const r = await api.agendamentosFila(data, filtro);
       setGrupos(r.grupos);
+      // Contador do botão "Laudos pendentes" (silencioso: sem permissão = some).
+      void api
+        .agendamentosExamesPendentes()
+        .then((p) => setQtdLaudosPendentes(p.pendentes.length))
+        .catch(() => setQtdLaudosPendentes(null));
     } catch (e) {
       void msg.error(e instanceof ApiError ? e.message : "Erro na fila");
     }
@@ -308,6 +359,11 @@ export function FilaMedicoPage() {
   };
 
   const finalizarExame = async (a: AgendamentoRow) => {
+    // Com conta: diálogo para anexar o laudo de cada exame antes de finalizar.
+    if (a.conta_id) {
+      setDialogExames({ agendamento: a, finalizar: true });
+      return;
+    }
     const ok = await msg.confirm({
       title: "Finalizar exame",
       message:
@@ -323,7 +379,7 @@ export function FilaMedicoPage() {
     try {
       if (horarioTemAso(a)) {
         const row = await api.admissionalAbrir(a.id);
-        navigate(`/admissional/${row.id}`, { state: { fromFila: true } });
+        navigate(`/admissional/${row.id}`, { state: { fromFila: true, returnTo: voltarParaFila } });
         await carregar();
         return;
       }
@@ -333,7 +389,7 @@ export function FilaMedicoPage() {
       }
       const r = await api.prontuarioAbrir(a.id);
       navigate(`/medico/atendimento/${r.prontuario.id}`, {
-        state: { fromFila: true },
+        state: { fromFila: true, returnTo: voltarParaFila },
       });
       await carregar();
     } catch (e) {
@@ -357,15 +413,21 @@ export function FilaMedicoPage() {
   const acoesFinalizarExame = podeFinalizarExame
     ? { onFinalizarExame: (a: AgendamentoRow) => void finalizarExame(a) }
     : {};
+  const acoesExames = podeFinalizarExame
+    ? {
+        onVerExames: (a: AgendamentoRow) =>
+          setDialogExames({ agendamento: a, finalizar: false }),
+      }
+    : {};
 
   const verConsulta = (prontuarioId: number) => {
     navigate(`/medico/atendimento/${prontuarioId}`, {
-      state: { abaInicial: "ficha", fromFila: true },
+      state: { abaInicial: "ficha", fromFila: true, returnTo: voltarParaFila },
     });
   };
 
   const verAdmissional = (admissionalId: number) => {
-    navigate(`/admissional/${admissionalId}`, { state: { fromFila: true } });
+    navigate(`/admissional/${admissionalId}`, { state: { fromFila: true, returnTo: voltarParaFila } });
   };
 
   const acoesVerFinalizado =
@@ -390,12 +452,12 @@ export function FilaMedicoPage() {
         subtitle={subtitulo}
         leading={<ClinicaBrandMark size="lg" tone="light" showSubtitle={false} />}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-4">
             {podeFiltrarQualquerMedico ? (
               <label className="flex items-center gap-2">
-                <span className="text-sm font-medium whitespace-nowrap">Médico</span>
+                <span className="text-base font-semibold whitespace-nowrap">Médico:</span>
                 <select
-                  className="legacy-input min-w-[12rem]"
+                  className="legacy-input fila-filtro-campo min-w-[16rem]"
                   value={medicoId}
                   onChange={(e) =>
                     setMedicoId(e.target.value ? Number(e.target.value) : "")
@@ -410,7 +472,19 @@ export function FilaMedicoPage() {
                 </select>
               </label>
             ) : null}
-            <DataIsoInput value={data} onValueChange={setData} />
+            {qtdLaudosPendentes ? (
+              <Link
+                to="/medico/laudos-pendentes"
+                className="btn btn-secondary no-underline"
+                title="Exames de atendimentos finalizados que ainda não têm laudo anexado"
+              >
+                Laudos pendentes ({qtdLaudosPendentes})
+              </Link>
+            ) : null}
+            <label className="flex items-center gap-2">
+              <span className="text-base font-semibold whitespace-nowrap">Data:</span>
+              <DataIsoInput className="legacy-input fila-filtro-campo" value={data} onValueChange={setData} />
+            </label>
           </div>
         }
       />
@@ -433,6 +507,7 @@ export function FilaMedicoPage() {
           cobrancaReturn={cobrancaReturn}
           {...acoesAtenderMedico}
           {...acoesFinalizarExame}
+          {...acoesExames}
         />
         <Coluna
           etapa="em_atendimento"
@@ -443,6 +518,7 @@ export function FilaMedicoPage() {
           cobrancaReturn={cobrancaReturn}
           {...acoesAtenderMedico}
           {...acoesFinalizarExame}
+          {...acoesExames}
         />
         <Coluna
           etapa="finalizado"
@@ -452,8 +528,20 @@ export function FilaMedicoPage() {
           podeCobranca={podeCobranca}
           cobrancaReturn={cobrancaReturn}
           {...acoesVerFinalizado}
+          {...acoesExames}
         />
       </div>
+      {dialogExames ? (
+        <FinalizarExameDialog
+          agendamentoId={dialogExames.agendamento.id}
+          onFinalizar={
+            dialogExames.finalizar
+              ? () => mudarStatus(dialogExames.agendamento.id, "finalizado")
+              : undefined
+          }
+          onClose={() => setDialogExames(null)}
+        />
+      ) : null}
     </div>
   );
 }
