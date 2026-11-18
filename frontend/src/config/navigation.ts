@@ -4,6 +4,7 @@ import {
   FileClock,
   FolderOpen,
   LayoutDashboard,
+  Mic,
   Settings,
   Stethoscope,
   Wallet,
@@ -32,6 +33,13 @@ export const navigation: NavItem[] = [
     path: "/medico/laudos-pendentes",
     icon: FileClock,
     modulo: ["fila_medico", "fila_recepcao", "exames_anexos"],
+  },
+  {
+    label: "Transcrição de voz",
+    path: "/medico/transcricao-piloto",
+    icon: Mic,
+    badge: "piloto",
+    modulo: ["prontuario_escrever", "fila_medico"],
   },
   {
     label: "Agenda",

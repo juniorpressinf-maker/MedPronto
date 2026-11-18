@@ -1236,8 +1236,31 @@
   line-height: 1.5;
 }
 
+/* Campo "Texto do atestado": caixa visível (o .prontuario-secao__area é
+   transparente e sem borda, feito para ficar dentro de uma seção emoldurada). */
+.atestado-panel__texto {
+  min-height: 10rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: #111;
+  overflow-wrap: anywhere;
+}
+
+.atestado-panel__texto:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+  background: #fff;
+}
+
+.atestado-panel__texto[readonly] {
+  background: var(--panel-2);
+}
+
 .atestado-previa__folha p {
   margin: 0 0 0.7rem;
+  overflow-wrap: anywhere;
 }
 
 .atestado-previa__folha hr {

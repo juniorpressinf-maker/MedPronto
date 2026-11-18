@@ -51,6 +51,7 @@ function Get-ClientDevPaths {
             'zerar-base.bat',
             'reset-acesso.bat',
             'Empacotar Instalador.bat',
+            'Liberar empacotador no antivirus.bat',
             'empacotar-instalador.ps1',
             'medpronto-instalador-win.zip',
             'MedPronto-Setup.exe',
@@ -82,6 +83,7 @@ function Get-ClientDevPaths {
             'zerar-base.bat',
             'reset-acesso.bat',
             'Empacotar Instalador.bat',
+            'Liberar empacotador no antivirus.bat',
             'empacotar-instalador.ps1',
             'medpronto-instalador-win.zip',
             'MedPronto-Setup.exe',
@@ -338,6 +340,76 @@ function Copy-ProjetoParaStaging {
             throw "$rel nao foi copiado para o pacote"
         }
     }
+
+    Assert-StagingCompleto -Root $Root -Staging $Staging
+}
+
+function Assert-StagingCompleto {
+    # Confere se TODO o codigo do sistema chegou ao staging antes de compilar.
+    # Motivo: o robocopy exclui QUALQUER pasta chamada data, dist, temp, logs...
+    # em qualquer nivel. Uma pasta nova como frontend\src\data sumiria do pacote
+    # sem aviso. Aqui o empacotamento para com a lista do que ficou de fora.
+    param(
+        [string]$Root,
+        [string]$Staging
+    )
+
+    $pastasDoSistema = @(
+        'database',
+        'backend\src',
+        'backend\scripts',
+        'backend\recursos',
+        'frontend\src',
+        'frontend\public',
+        'frontend\scripts',
+        'scripts',
+        'splash'
+    )
+
+    # Arquivos que o empacotador ja tira DE PROPOSITO (por nome, em qualquer pasta,
+    # ou ferramentas do fornecedor) nao contam como "faltando".
+    $exclusoesPorNome = (Build-EmpacotarExcludeLists -Root $Root).Files
+    $vendorArquivos = (Get-VendorOnlyPaths).Files
+
+    $faltando = New-Object System.Collections.Generic.List[string]
+    $conferidos = 0
+    foreach ($pasta in $pastasDoSistema) {
+        $origem = Join-Path $Root $pasta
+        if (-not (Test-Path -LiteralPath $origem)) { continue }
+        Get-ChildItem -LiteralPath $origem -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -ne '.tsbuildinfo' } |
+            ForEach-Object {
+                $rel = $_.FullName.Substring($Root.TrimEnd('\').Length).TrimStart('\')
+                $nome = $_.Name
+                $proposital = ($vendorArquivos -contains $rel) -or
+                    @($exclusoesPorNome | Where-Object { $nome -like $_ }).Count -gt 0
+                if ($proposital) { return }
+                $conferidos++
+                if (-not (Test-Path -LiteralPath (Join-Path $Staging $rel))) {
+                    $faltando.Add($rel)
+                }
+            }
+    }
+
+    # Arquivos soltos na raiz que o sistema usa para iniciar/parar/instalar.
+    foreach ($rel in @('package.json', 'package-lock.json', 'iniciar.vbs', 'parar.bat',
+                       'backend\package.json', 'frontend\package.json')) {
+        if ((Test-Path -LiteralPath (Join-Path $Root $rel)) -and
+            -not (Test-Path -LiteralPath (Join-Path $Staging $rel))) {
+            $faltando.Add($rel)
+        }
+    }
+
+    if ($faltando.Count -gt 0) {
+        $lista = ($faltando | Select-Object -First 15) -join "`n  - "
+        $extra = if ($faltando.Count -gt 15) { "`n  ... e mais $($faltando.Count - 15)" } else { '' }
+        throw ("$($faltando.Count) arquivo(s) do sistema ficaram FORA do pacote:`n  - $lista$extra`n" +
+               "Provavel causa: pasta com nome reservado (data, dist, temp, logs, node, node_modules). " +
+               "Renomeie a pasta ou ajuste Build-EmpacotarExcludeLists em scripts\empacotar-lib.ps1.")
+    }
+
+    $migracoes = @(Get-ChildItem -LiteralPath (Join-Path $Staging 'database') -Filter '*.sql' -File -ErrorAction SilentlyContinue).Count
+    Write-Host "      conferido: $conferidos arquivos do sistema no pacote ($migracoes migracoes de banco)." -ForegroundColor DarkGray
 }
 
 function Test-WindowsExeFile {

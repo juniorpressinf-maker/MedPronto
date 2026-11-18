@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Send, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Camera, MessageCircle, Search, Send, X } from "lucide-react";
 import { useAuth } from "../lib/authContext";
 
 interface Contato {
@@ -13,6 +13,44 @@ interface Contato {
   ultima_remetente_id: number | null;
   ultima_em: string | null;
   nao_lidas: number;
+  /** Muda quando a foto é trocada; null = sem foto (mostra as iniciais). */
+  foto_versao: string | null;
+}
+
+function urlFoto(id: number, versao: string | null | undefined) {
+  return versao ? `/api/chat/foto/${id}?v=${encodeURIComponent(versao)}` : null;
+}
+
+/** Recorta o centro da imagem em quadrado e reduz para 320px (JPEG), antes de enviar. */
+function reduzirImagem(arquivo: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(arquivo);
+    const img = new Image();
+    img.onload = () => {
+      const lado = Math.min(img.naturalWidth, img.naturalHeight);
+      const sx = (img.naturalWidth - lado) / 2;
+      const sy = (img.naturalHeight - lado) / 2;
+      const canvas = document.createElement("canvas");
+      canvas.width = 320;
+      canvas.height = 320;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        URL.revokeObjectURL(url);
+        reject(new Error("Não foi possível processar a imagem."));
+        return;
+      }
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, 320, 320);
+      ctx.drawImage(img, sx, sy, lado, lado, 0, 0, 320, 320);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/jpeg", 0.9));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Formato de imagem não suportado. Use JPG ou PNG."));
+    };
+    img.src = url;
+  });
 }
 
 interface Mensagem {
@@ -28,12 +66,112 @@ interface ChatDrawerProps {
   onClose: () => void;
 }
 
-function StatusOnline({ online }: { online: boolean }) {
+const GRADIENTE_TOPO = "linear-gradient(135deg, #1d4ed8 0%, #2563eb 55%, #0ea5e9 100%)";
+const GRADIENTE_MINHA = "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)";
+
+/** Cores dos avatares (fundo suave + texto forte), escolhidas pelo nome. */
+const CORES_AVATAR = [
+  ["#dbeafe", "#1d4ed8"],
+  ["#dcfce7", "#15803d"],
+  ["#fce7f3", "#be185d"],
+  ["#ede9fe", "#6d28d9"],
+  ["#ffedd5", "#c2410c"],
+  ["#cffafe", "#0e7490"],
+  ["#fef9c3", "#a16207"],
+  ["#fee2e2", "#b91c1c"],
+];
+
+function corDoNome(nome: string) {
+  let h = 0;
+  for (let i = 0; i < nome.length; i++) h = (h * 31 + nome.charCodeAt(i)) >>> 0;
+  return CORES_AVATAR[h % CORES_AVATAR.length];
+}
+
+function iniciais(nome: string) {
+  const partes = nome
+    .replace(/^(DRA?\.?)\s+/i, "")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (partes.length === 0) return "?";
+  if (partes.length === 1) return partes[0].slice(0, 2).toUpperCase();
+  return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase();
+}
+
+const PERFIL_ROTULO: Record<string, { rotulo: string; fundo: string; cor: string }> = {
+  medico: { rotulo: "Médico", fundo: "#dbeafe", cor: "#1d4ed8" },
+  secretaria: { rotulo: "Secretária", fundo: "#fce7f3", cor: "#be185d" },
+  admin: { rotulo: "Admin", fundo: "#ede9fe", cor: "#6d28d9" },
+};
+
+function paraData(s: string) {
+  return new Date(s.replace(" ", "T"));
+}
+
+function horaCurta(s: string | null) {
+  if (!s) return "";
+  const d = paraData(s);
+  if (Number.isNaN(d.getTime())) return "";
+  const hoje = new Date();
+  const mesmoDia = d.toDateString() === hoje.toDateString();
+  return mesmoDia
+    ? d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
+function rotuloDiaMensagem(d: Date) {
+  const hoje = new Date();
+  const ontem = new Date();
+  ontem.setDate(hoje.getDate() - 1);
+  if (d.toDateString() === hoje.toDateString()) return "Hoje";
+  if (d.toDateString() === ontem.toDateString()) return "Ontem";
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "long" });
+}
+
+function Avatar({
+  nome,
+  online,
+  foto,
+  tamanho = 44,
+  semStatus = false,
+}: {
+  nome: string;
+  online?: boolean;
+  foto?: string | null;
+  tamanho?: number;
+  semStatus?: boolean;
+}) {
+  const [fundo, cor] = corDoNome(nome);
+  const [falhou, setFalhou] = useState(false);
+  useEffect(() => setFalhou(false), [foto]);
+  const mostrarFoto = !!foto && !falhou;
   return (
-    <span
-      className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${online ? "bg-emerald-500" : "bg-slate-300"}`}
-      title={online ? "Online" : "Offline"}
-    />
+    <div className="relative shrink-0" style={{ width: tamanho, height: tamanho }}>
+      {mostrarFoto ? (
+        <img
+          src={foto!}
+          alt={nome}
+          className="h-full w-full rounded-full object-cover ring-2 ring-white shadow-sm"
+          onError={() => setFalhou(true)}
+          draggable={false}
+        />
+      ) : (
+        <div
+          className="flex h-full w-full items-center justify-center rounded-full font-bold"
+          style={{ background: fundo, color: cor, fontSize: tamanho * 0.36 }}
+        >
+          {iniciais(nome)}
+        </div>
+      )}
+      {semStatus ? null : <span
+        className="absolute bottom-0 right-0 rounded-full ring-2 ring-white"
+        style={{
+          width: tamanho * 0.28,
+          height: tamanho * 0.28,
+          background: online ? "#22c55e" : "#cbd5e1",
+        }}
+        title={online ? "Online" : "Offline"}
+      />}
+    </div>
   );
 }
 
@@ -43,6 +181,7 @@ export function ChatDrawer({ open, onClose }: ChatDrawerProps) {
 
   const [contatos, setContatos] = useState<Contato[]>([]);
   const [carregando, setCarregando] = useState(false);
+  const [busca, setBusca] = useState("");
 
   const [contatoAberto, setContatoAberto] = useState<Contato | null>(null);
   const [conversaId, setConversaId] = useState<number | null>(null);
@@ -50,6 +189,48 @@ export function ChatDrawer({ open, onClose }: ChatDrawerProps) {
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Minha foto
+  const [minhaFotoVersao, setMinhaFotoVersao] = useState<string | null>(null);
+  const [salvandoFoto, setSalvandoFoto] = useState(false);
+  const arquivoRef = useRef<HTMLInputElement>(null);
+  const buscaRef = useRef<HTMLInputElement>(null);
+
+  const carregarEu = useCallback(async () => {
+    try {
+      const r = await fetch("/api/chat/eu", { credentials: "include" });
+      if (r.ok) setMinhaFotoVersao(((await r.json()) as { foto_versao: string | null }).foto_versao);
+    } catch {
+      /* silencioso */
+    }
+  }, []);
+
+  const trocarFoto = async (arquivo: File) => {
+    setSalvandoFoto(true);
+    try {
+      const foto = await reduzirImagem(arquivo);
+      const r = await fetch("/api/chat/minha-foto", {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ foto }),
+      });
+      const corpo = (await r.json().catch(() => ({}))) as { foto_versao?: string; error?: string };
+      if (!r.ok) throw new Error(corpo.error ?? "Erro ao salvar a foto");
+      setMinhaFotoVersao(corpo.foto_versao ?? null);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro ao salvar a foto");
+    } finally {
+      setSalvandoFoto(false);
+      if (arquivoRef.current) arquivoRef.current.value = "";
+    }
+  };
+
+  const removerFoto = async () => {
+    if (!window.confirm("Remover sua foto do chat?")) return;
+    const r = await fetch("/api/chat/minha-foto", { method: "DELETE", credentials: "include" });
+    if (r.ok) setMinhaFotoVersao(null);
+  };
 
   const carregarContatos = useCallback(async () => {
     try {
@@ -75,13 +256,15 @@ export function ChatDrawer({ open, onClose }: ChatDrawerProps) {
       setConversaId(null);
       setMensagens([]);
       setTexto("");
+      setBusca("");
       return;
     }
     setCarregando(true);
     void carregarContatos().finally(() => setCarregando(false));
+    void carregarEu();
     const id = setInterval(() => void carregarContatos(), 5000);
     return () => clearInterval(id);
-  }, [open, carregarContatos]);
+  }, [open, carregarContatos, carregarEu]);
 
   useEffect(() => {
     if (!conversaId) return;
@@ -93,6 +276,32 @@ export function ChatDrawer({ open, onClose }: ChatDrawerProps) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
   }, [mensagens.length]);
+
+  // Esc fecha
+  useEffect(() => {
+    if (!open) return;
+    const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [open, onClose]);
+
+  /** Não lidas primeiro, depois quem está online; filtra pela busca. */
+  const contatosVisiveis = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    return contatos
+      .filter((c) => !termo || c.nome.toLowerCase().includes(termo) || c.login.toLowerCase().includes(termo))
+      .map((c, i) => ({ c, i }))
+      .sort((a, b) => {
+        const naoLidas = Number(b.c.nao_lidas > 0) - Number(a.c.nao_lidas > 0);
+        if (naoLidas) return naoLidas;
+        const online = Number(!!b.c.online) - Number(!!a.c.online);
+        if (online) return online;
+        return a.i - b.i;
+      })
+      .map((x) => x.c);
+  }, [contatos, busca]);
+
+  const totalOnline = contatos.filter((c) => c.online).length;
 
   const abrirContato = async (c: Contato) => {
     setContatoAberto(c);
@@ -151,86 +360,257 @@ export function ChatDrawer({ open, onClose }: ChatDrawerProps) {
 
   return (
     <div className="fixed inset-0 z-[70] flex justify-end">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="chat-fundo absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]" onClick={onClose} />
 
-      <div className="relative flex h-full w-full max-w-md flex-col bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          {contatoAtual ? (
-            <div className="flex min-w-0 items-center gap-3">
-              <button onClick={voltarParaLista} className="text-slate-600 hover:text-slate-900" aria-label="Voltar">
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-              <StatusOnline online={!!contatoAtual.online} />
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold">{contatoAtual.nome}</div>
-                <div className="text-[11px] text-slate-500">{contatoAtual.online ? "Online" : "Offline"}</div>
-              </div>
-            </div>
-          ) : (
-            <div className="font-semibold">Chat interno — {me?.username}</div>
-          )}
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-700" aria-label="Fechar">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {!contatoAtual && (
-          <div className="flex-1 overflow-auto p-2">
-            {carregando && contatos.length === 0 && (
-              <div className="p-4 text-center text-sm text-slate-500">Carregando…</div>
-            )}
-            {!carregando && contatos.length === 0 && (
-              <div className="p-4 text-center text-sm text-slate-500">Nenhum usuário disponível.</div>
-            )}
-            {contatos.map((c) => {
-              const previa = c.ultima_mensagem
-                ? `${c.ultima_remetente_id === meuId ? "Você: " : ""}${c.ultima_mensagem}`
-                : `${c.login} • ${c.perfil}`;
-              return (
-                <div
-                  key={c.id}
-                  onClick={() => void abrirContato(c)}
-                  className={`mb-1 flex cursor-pointer items-center gap-3 rounded-lg border p-3 hover:bg-slate-50 active:bg-slate-100 ${c.nao_lidas > 0 ? "border-red-200 bg-red-50/40" : ""}`}
+      <div className="chat-painel relative m-3 flex w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-black/5">
+        {/* ---------- Cabeçalho ---------- */}
+        <div className="relative px-5 pb-4 pt-4 text-white" style={{ background: GRADIENTE_TOPO }}>
+          <div className="flex items-center justify-between gap-3">
+            {contatoAtual ? (
+              <div className="flex min-w-0 items-center gap-3">
+                <button
+                  onClick={voltarParaLista}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15 transition hover:bg-white/25"
+                  aria-label="Voltar"
                 >
-                  <StatusOnline online={!!c.online} />
-                  <div className="min-w-0 flex-1">
-                    <div className={`truncate text-sm ${c.nao_lidas > 0 ? "font-semibold" : "font-medium"}`}>{c.nome}</div>
-                    <div className="truncate text-xs text-slate-500">{previa}</div>
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+                <Avatar
+                  nome={contatoAtual.nome}
+                  online={!!contatoAtual.online}
+                  foto={urlFoto(contatoAtual.id, contatoAtual.foto_versao)}
+                  tamanho={40}
+                />
+                <div className="min-w-0">
+                  <div className="truncate text-[15px] font-semibold">{contatoAtual.nome}</div>
+                  <div className="text-xs text-white/80">{contatoAtual.online ? "● Online agora" : "Offline"}</div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex min-w-0 items-center gap-3">
+                {/* Minha foto: clique para trocar */}
+                <button
+                  type="button"
+                  className="group relative shrink-0 rounded-full"
+                  title={minhaFotoVersao ? "Trocar minha foto" : "Colocar minha foto"}
+                  disabled={salvandoFoto}
+                  onClick={() => arquivoRef.current?.click()}
+                >
+                  <Avatar
+                    nome={me?.username ?? "?"}
+                    foto={urlFoto(meuId, minhaFotoVersao)}
+                    tamanho={46}
+                    semStatus
+                  />
+                  <span className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-white text-blue-700 shadow ring-2 ring-blue-600/30 transition group-hover:scale-110">
+                    <Camera className="h-3 w-3" />
+                  </span>
+                  {salvandoFoto && (
+                    <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 text-[10px] font-semibold">
+                      …
+                    </span>
+                  )}
+                </button>
+                <input
+                  ref={arquivoRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void trocarFoto(f);
+                  }}
+                />
+                <div className="min-w-0">
+                  <div className="text-base font-semibold leading-tight">Chat interno</div>
+                  <div className="text-xs text-white/80">
+                    Olá, {me?.username} · {totalOnline} {totalOnline === 1 ? "pessoa online" : "pessoas online"}
                   </div>
-                  {c.nao_lidas > 0 && (
-                    <div className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-semibold text-white">
-                      {c.nao_lidas}
-                    </div>
+                  {minhaFotoVersao ? (
+                    <button
+                      type="button"
+                      className="mt-0.5 text-[11px] text-white/70 underline-offset-2 hover:text-white hover:underline"
+                      onClick={() => void removerFoto()}
+                    >
+                      remover minha foto
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="mt-0.5 text-[11px] text-white/70 underline-offset-2 hover:text-white hover:underline"
+                      onClick={() => arquivoRef.current?.click()}
+                    >
+                      colocar minha foto
+                    </button>
                   )}
                 </div>
-              );
-            })}
+              </div>
+            )}
+            <button
+              onClick={onClose}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15 transition hover:bg-white/25"
+              aria-label="Fechar"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {!contatoAtual && (
+            <div className="relative mt-4">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                ref={buscaRef}
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                onKeyDown={(e) => {
+                  // Esc com texto: só limpa a busca (não fecha o chat)
+                  if (e.key === "Escape" && busca) {
+                    e.stopPropagation();
+                    setBusca("");
+                  }
+                }}
+                placeholder="Buscar pessoa…"
+                className="w-full rounded-full border-0 bg-white py-2.5 pl-10 pr-10 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-white/60"
+              />
+              {busca && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBusca("");
+                    buscaRef.current?.focus();
+                  }}
+                  className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-slate-200 text-slate-600 transition hover:bg-slate-300 hover:text-slate-800"
+                  aria-label="Limpar busca"
+                  title="Limpar busca"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ---------- Lista de contatos ---------- */}
+        {!contatoAtual && (
+          <div className="flex-1 overflow-auto bg-slate-50 px-3 py-3">
+            {carregando && contatos.length === 0 && (
+              <div className="p-6 text-center text-sm text-slate-500">Carregando…</div>
+            )}
+            {!carregando && contatosVisiveis.length === 0 && (
+              <div className="p-6 text-center text-sm text-slate-500">
+                {busca ? "Ninguém encontrado." : "Nenhum usuário disponível."}
+              </div>
+            )}
+            <div className="flex flex-col gap-2">
+              {contatosVisiveis.map((c) => {
+                const temNova = c.nao_lidas > 0;
+                const previa = c.ultima_mensagem
+                  ? `${c.ultima_remetente_id === meuId ? "Você: " : ""}${c.ultima_mensagem}`
+                  : "Toque para conversar";
+                const perfil = PERFIL_ROTULO[c.perfil];
+                return (
+                  <button
+                    type="button"
+                    key={c.id}
+                    onClick={() => void abrirContato(c)}
+                    className={`group flex w-full items-center gap-3 rounded-2xl bg-white p-3 text-left shadow-sm ring-1 transition hover:-translate-y-px hover:shadow-md ${
+                      temNova ? "ring-blue-300" : "ring-slate-200/80 hover:ring-blue-200"
+                    }`}
+                  >
+                    <Avatar nome={c.nome} online={!!c.online} foto={urlFoto(c.id, c.foto_versao)} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className={`truncate text-sm text-slate-800 ${temNova ? "font-bold" : "font-semibold"}`}>
+                          {c.nome}
+                        </span>
+                        {perfil ? (
+                          <span
+                            className="shrink-0 rounded-full px-2 py-px text-[10px] font-semibold"
+                            style={{ background: perfil.fundo, color: perfil.cor }}
+                          >
+                            {perfil.rotulo}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className={`mt-0.5 truncate text-xs ${temNova ? "font-medium text-slate-700" : "text-slate-500"}`}>
+                        {previa}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <span className={`text-[11px] ${temNova ? "font-semibold text-blue-600" : "text-slate-400"}`}>
+                        {horaCurta(c.ultima_em)}
+                      </span>
+                      {temNova && (
+                        <span
+                          className="flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white"
+                          style={{ background: GRADIENTE_MINHA }}
+                        >
+                          {c.nao_lidas}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
+        {/* ---------- Conversa ---------- */}
         {contatoAtual && (
           <>
-            <div className="flex-1 space-y-2 overflow-auto bg-slate-50 p-3">
+            <div
+              className="flex-1 overflow-auto px-4 py-4"
+              style={{
+                background:
+                  "radial-gradient(circle at 20% 0%, rgba(37,99,235,0.06), transparent 40%), radial-gradient(circle at 100% 100%, rgba(14,165,233,0.07), transparent 45%), #f8fafc",
+              }}
+            >
               {conversaId && mensagens.length === 0 && (
-                <div className="p-4 text-center text-xs text-slate-400">Nenhuma mensagem ainda.</div>
+                <div className="mt-10 flex flex-col items-center gap-2 text-center text-sm text-slate-400">
+                  <MessageCircle className="h-8 w-8 text-slate-300" />
+                  Nenhuma mensagem ainda. Diga olá!
+                </div>
               )}
-              {mensagens.map((m) => {
-                const isMine = m.remetente_id === meuId;
-                return (
-                  <div key={m.id} className={`flex ${isMine ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${isMine ? "rounded-br-none bg-brand-600 text-white" : "rounded-bl-none border bg-white"}`}>
-                      <div className="whitespace-pre-wrap break-words">{m.texto}</div>
-                      <div className={`mt-1 text-[10px] ${isMine ? "text-white/70" : "text-slate-400"}`}>
-                        {new Date(m.criado_em.replace(" ", "T")).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+              <div className="flex flex-col gap-1.5">
+                {mensagens.map((m, i) => {
+                  const isMine = m.remetente_id === meuId;
+                  const data = paraData(m.criado_em);
+                  const anterior = i > 0 ? paraData(mensagens[i - 1].criado_em) : null;
+                  const novoDia = !anterior || anterior.toDateString() !== data.toDateString();
+                  const mesmoAutor = !novoDia && i > 0 && mensagens[i - 1].remetente_id === m.remetente_id;
+                  return (
+                    <div key={m.id}>
+                      {novoDia && (
+                        <div className="my-3 flex justify-center">
+                          <span className="rounded-full bg-white px-3 py-1 text-[11px] font-medium text-slate-500 shadow-sm ring-1 ring-slate-200">
+                            {rotuloDiaMensagem(data)}
+                          </span>
+                        </div>
+                      )}
+                      <div className={`flex ${isMine ? "justify-end" : "justify-start"} ${mesmoAutor ? "" : "mt-1.5"}`}>
+                        <div
+                          className={`max-w-[80%] px-3.5 py-2 text-sm shadow-sm ${
+                            isMine
+                              ? "rounded-2xl rounded-br-md text-white"
+                              : "rounded-2xl rounded-bl-md bg-white text-slate-800 ring-1 ring-slate-200"
+                          }`}
+                          style={isMine ? { background: GRADIENTE_MINHA } : undefined}
+                        >
+                          <div className="whitespace-pre-wrap break-words leading-relaxed">{m.texto}</div>
+                          <div className={`mt-0.5 text-right text-[10px] ${isMine ? "text-white/70" : "text-slate-400"}`}>
+                            {data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
               <div ref={messagesEndRef} />
             </div>
 
-            <div className="flex gap-2 border-t bg-white p-3">
+            <div className="flex items-center gap-2 border-t border-slate-100 bg-white p-3">
               <input
                 value={texto}
                 onChange={(e) => setTexto(e.target.value)}
@@ -240,14 +620,15 @@ export function ChatDrawer({ open, onClose }: ChatDrawerProps) {
                     void enviarMensagem();
                   }
                 }}
-                placeholder="Escreva uma mensagem..."
+                placeholder="Escreva uma mensagem…"
                 disabled={!conversaId}
-                className="flex-1 rounded-full border px-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+                className="flex-1 rounded-full border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm transition focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100"
               />
               <button
                 onClick={() => void enviarMensagem()}
                 disabled={!conversaId || !texto.trim() || enviando}
-                className="rounded-full bg-brand-600 p-2 text-white disabled:opacity-50"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white shadow-md transition hover:scale-105 hover:shadow-lg disabled:scale-100 disabled:opacity-40 disabled:shadow-none"
+                style={{ background: GRADIENTE_MINHA }}
                 aria-label="Enviar"
               >
                 <Send className="h-4 w-4" />

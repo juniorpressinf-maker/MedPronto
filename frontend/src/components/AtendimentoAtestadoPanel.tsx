@@ -22,7 +22,8 @@ function AtestadoPrevia({ pacienteNome, form }: { pacienteNome: string; form: At
   const dias = form.dias_afastamento;
   const cid = [form.cid_codigo, form.cid_descricao].filter(Boolean).join(" — ");
   const texto = form.texto_livre?.trim();
-  const vazio = !(dias != null && dias > 0) && !cid && !texto;
+  // Prévia só aparece depois que algum dado for digitado
+  if (!(dias != null && dias > 0) && !cid && !texto) return null;
   return (
     <aside className="atestado-previa" aria-label="Prévia do atestado">
       <p className="atestado-previa__rotulo">Prévia — como vai sair impresso</p>
@@ -42,9 +43,6 @@ function AtestadoPrevia({ pacienteNome, form }: { pacienteNome: string; form: At
         ) : null}
         {cid ? <p>CID: {cid}</p> : null}
         {texto ? <p className="whitespace-pre-wrap">{texto}</p> : null}
-        {vazio ? (
-          <p className="atestado-previa__vazio">Preencha os dias, o CID ou o texto ao lado.</p>
-        ) : null}
         <div className="atestado-previa__assinatura">
           _______________________________
           <br />
@@ -259,10 +257,13 @@ export function AtendimentoAtestadoPanel({
           }
         />
         <div>
-          <label className="prontuario-secao__titulo">Texto do atestado</label>
+          <label className="prontuario-secao__titulo" htmlFor="atestado-texto">
+            Texto do atestado
+          </label>
           <textarea
-            className="prontuario-secao__area w-full mt-1"
-            rows={6}
+            id="atestado-texto"
+            className="prontuario-secao__area atestado-panel__texto w-full mt-1"
+            rows={8}
             value={form.texto_livre ?? ""}
             readOnly={somenteLeitura}
             onChange={(e) =>

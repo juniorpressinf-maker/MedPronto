@@ -4,7 +4,9 @@ param(
     # Launcher: nao fecha a janela (splash ja aberto)
     [switch]$KeepBrowser,
     # Launcher: fecha so as janelas antigas do MedPronto (antes de abrir o splash)
-    [switch]$BrowserOnly
+    [switch]$BrowserOnly,
+    # Launcher: nao apaga data\iniciar.lock (a trava e da abertura que chamou)
+    [switch]$KeepLock
 )
 
 $ErrorActionPreference = 'Continue'
@@ -157,6 +159,7 @@ foreach ($rel in @(
         'logs\dev.pid',
         'data\iniciar.lock'
     )) {
+    if ($KeepLock -and $rel -eq 'data\iniciar.lock') { continue }
     $p = Join-Path $InstallDir $rel
     if (Test-Path -LiteralPath $p) {
         Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue

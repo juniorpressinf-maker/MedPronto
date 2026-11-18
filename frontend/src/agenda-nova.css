@@ -65,6 +65,11 @@
   font-weight: 600;
   margin-left: 0.35rem;
   white-space: nowrap;
+  /* Sempre na linha de baixo e sem contar na largura do grupo: antes, um período
+     mais comprido ("16–22 nov" x "9–15 nov") alargava a barra e jogava os botões
+     da direita para uma 2ª linha, mudando a posição da grade. */
+  flex-basis: 100%;
+  contain: inline-size;
 }
 .agn-area {
   flex: 1;
@@ -879,4 +884,44 @@
   font-size: 0.7rem;
   font-weight: 600;
   color: #b91c1c;
+}
+
+/* Situação do agendamento no painel lateral — etiqueta grande e colorida
+   (antes só ganhava cor dentro de .data-table e aparecia como texto miúdo). */
+.agn-painel .historico-status-badge {
+  padding: 0.35rem 0.95rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border: 2px solid transparent;
+  background: #e2e8f0;
+  color: #334155;
+}
+.agn-painel .historico-status-badge--presente {
+  background: #fde68a;
+  color: #92400e;
+  border-color: #f59e0b;
+}
+.agn-painel .historico-status-badge--em_atendimento,
+.agn-painel .historico-status-badge--em_preenchimento {
+  background: #7dd3fc;
+  color: #0c4a6e;
+  border-color: #0284c7;
+}
+.agn-painel .historico-status-badge--finalizado {
+  background: #86efac;
+  color: #14532d;
+  border-color: #16a34a;
+}
+.agn-painel .historico-status-badge--cancelado {
+  background: #b91c1c;
+  color: #fff;
+  border-color: #7f1d1d;
+}
+.agn-painel .historico-status-badge--nao_compareceu {
+  background: #ea580c;
+  color: #fff;
+  border-color: #9a3412;
+  box-shadow: 0 2px 6px rgba(234, 88, 12, 0.35);
 }

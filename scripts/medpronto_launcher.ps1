@@ -78,6 +78,7 @@ function Set-Step([int]$Step, [string]$Message) {
     $script:step = $Step
     Write-Status $Message
     Write-Log "[passo $Step/5] $Message"
+    Update-StartupLock
     Ensure-SplashAlive -Force
 }
 
@@ -210,10 +211,17 @@ function Finish-Startup {
     }
 }
 
+function Get-LockOwnerPid {
+    $line = (Get-Content -LiteralPath $LockFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+    if ($line -match '^(\d+)') { return [int]$Matches[1] }
+    return 0
+}
 function Test-LockStale {
     if (-not (Test-Path -LiteralPath $LockFile)) { return $false }
+    # A dona renova a trava a cada passo/segundo de espera (Update-StartupLock);
+    # 15 min sem renovar = abertura travada. Processo morto = trava orfa.
     $age = (Get-Date) - (Get-Item -LiteralPath $LockFile).LastWriteTime
-    if ($age.TotalMinutes -gt 4) { return $true }
+    if ($age.TotalMinutes -gt 15) { return $true }
     $line = (Get-Content -LiteralPath $LockFile -ErrorAction SilentlyContinue | Select-Object -First 1)
     if ($line -match '^(\d+)') {
         $lockPid = [int]$Matches[1]
@@ -230,11 +238,39 @@ function Test-LockActive {
     return $true
 }
 
+# Pega a trava de forma ATOMICA (CreateNew): dois cliques quase juntos nunca
+# viram duas aberturas. Retorna $false se outra abertura ja e dona.
 function Set-StartupLock {
-    Set-Content -LiteralPath $LockFile -Value "$PID $(Get-Date -Format o)" -Encoding ASCII
+    for ($try = 0; $try -lt 2; $try++) {
+        try {
+            $fs = [System.IO.File]::Open($LockFile, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+            try {
+                $bytes = [System.Text.Encoding]::ASCII.GetBytes("$PID $(Get-Date -Format o)")
+                $fs.Write($bytes, 0, $bytes.Length)
+            } finally { $fs.Dispose() }
+            return $true
+        } catch {
+            if ((Get-LockOwnerPid) -eq $PID) { return $true }
+            if (Test-LockStale) {
+                Remove-Item -LiteralPath $LockFile -Force -ErrorAction SilentlyContinue
+                continue
+            }
+            return $false
+        }
+    }
+    return $false
 }
 
+function Update-StartupLock {
+    # So a dona renova (mantem a trava "viva" durante build/espera longos)
+    if ((Get-LockOwnerPid) -ne $PID) { return }
+    try { (Get-Item -LiteralPath $LockFile).LastWriteTime = Get-Date } catch { }
+}
 function Clear-StartupLock {
+    # Nunca apaga a trava de OUTRA abertura em andamento
+    if (-not (Test-Path -LiteralPath $LockFile)) { return }
+    $owner = Get-LockOwnerPid
+    if ($owner -ne 0 -and $owner -ne $PID -and -not (Test-LockStale)) { return }
     Remove-Item -LiteralPath $LockFile -Force -ErrorAction SilentlyContinue
 }
 
@@ -257,6 +293,7 @@ function Get-ApiCrashError {
 
 function Wait-ForServers([int]$MaxSeconds) {
     for ($i = 1; $i -le $MaxSeconds; $i++) {
+        Update-StartupLock
         if (Test-ServersReady) { return $true }
         $crash = Get-ApiCrashError
         if ($crash) {
@@ -306,7 +343,7 @@ function Stop-OldServers {
     Write-Log '[0] encerrando servidores antigos...'
     $parar = Join-Path $PSScriptRoot 'parar-medpronto.ps1'
     if (Test-Path -LiteralPath $parar) {
-        & $parar -InstallDir $Root -KeepBrowser *> $null
+        & $parar -InstallDir $Root -KeepBrowser -KeepLock *> $null
     }
     Start-Sleep -Seconds 1
     Ensure-SplashAlive -Force
@@ -487,55 +524,51 @@ if (Test-LockStale) {
     Clear-StartupLock
 }
 
-# --- servidor ja pronto ---
-if (Test-ServersReady) {
-    Write-Log 'Servidor ja esta rodando.'
-    $tools = Get-NodeTools
-    if ($tools) {
-        if (Test-LockActive) {
-            Write-Log 'Outra atualizacao em andamento - abrindo navegador sem recompilar.'
-            Notify-User 'Atualizacao em andamento... Abrindo tela.' 6 -Force
-        } else {
-            Set-StartupLock
-            try {
-                $apiRebuilt = Sync-BuildIfStale $tools
-                if ($apiRebuilt) {
-                    Write-Log '[build] backend atualizado - reiniciando servidor...'
-                    Write-Status 'Reiniciando servidor com a atualizacao...'
-                    Stop-OldServers
-                    Start-Servers $tools
-                    if (-not (Wait-ForServers 90)) {
-                        Show-Error "Nao foi possivel reiniciar o ${AppName} apos atualizacao."
-                    }
-                }
-            } finally {
-                Clear-StartupLock
-            }
-        }
+# --- clique repetido: outra abertura em andamento ---
+# A abertura em andamento e a DONA do splash, do status e da trava: este clique
+# nao escreve status, nao mostra erro e nao apaga a trava - so espera e sai.
+function Wait-OtherStartup {
+    Write-Log "Clique repetido (PID $PID) - outra abertura em andamento; aguardando sem mexer nela."
+    $limite = (Get-Date).AddMinutes(10)
+    while ((Get-Date) -lt $limite) {
+        if (-not (Test-LockActive)) { break } # a outra abertura terminou
+        Start-Sleep -Seconds 3
     }
-    Finish-Startup
+    # Se o usuario fechou a janela enquanto isso, abre o login para ele
+    if (-not $NoBrowser -and (Test-ServersReady) -and -not (Test-AppWindowOpen)) {
+        Open-Browser
+    }
+    Write-Log "Clique repetido (PID $PID) - encerrado."
     exit 0
 }
 
-# --- outro clique em andamento ---
-if (Test-LockActive) {
-    Write-Log 'Outro inicio em andamento - aguardando...'
-    Write-Status 'Aguardando inicio em andamento...'
-    Notify-User "$AppName ja esta iniciando... aguarde." 6 -Force
+# Trava atomica: so UMA abertura por vez; os demais cliques so esperam.
+if (-not (Set-StartupLock)) { Wait-OtherStartup }
 
-    # O splash do primeiro clique ja vira o login - nao abrir outra janela
-    if (Wait-ForServers 90) {
-        Finish-Startup -SkipBrowser
-        exit 0
+# --- servidor ja pronto ---
+if (Test-ServersReady) {
+    Write-Log 'Servidor ja esta rodando.'
+    try {
+        $tools = Get-NodeTools
+        if ($tools) {
+            $apiRebuilt = Sync-BuildIfStale $tools
+            if ($apiRebuilt) {
+                Write-Log '[build] backend atualizado - reiniciando servidor...'
+                Write-Status 'Reiniciando servidor com a atualizacao...'
+                Stop-OldServers
+                Start-Servers $tools
+                if (-not (Wait-ForServers 90)) {
+                    Show-Error "Nao foi possivel reiniciar o ${AppName} apos atualizacao."
+                }
+            }
+        }
+        # Grava "pronto" no status: um splash aberto com erro antigo vai para o login
+        Finish-Startup
+    } finally {
+        Clear-StartupLock
     }
-    if (Test-ServersReady) {
-        Finish-Startup -SkipBrowser
-        exit 0
-    }
-    Show-Error "Nao foi possivel abrir o ${AppName}.`nO sistema pode ainda estar subindo - aguarde 1-2 min e tente de novo."
+    exit 0
 }
-
-Set-StartupLock
 
 try {
     Write-Log "=== MedPronto launcher (PID $PID) ==="

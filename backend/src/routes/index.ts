@@ -23,6 +23,7 @@ import { remotoRouter } from "./remoto.js";
 import { whatsappRouter } from "./whatsapp.js";
 import { chatRouter } from "./chat.js";
 import { preferenciasRouter } from "./preferencias.js";
+import { transcricaoRouter } from "./transcricao.js";
 import { usuariosRouter } from "./usuarios.js";
 
 export const apiRouter = Router();
@@ -51,6 +52,7 @@ apiRouter.use("/cobranca", cobrancaRouter);
 apiRouter.use("/whatsapp", whatsappRouter);
 apiRouter.use("/chat", chatRouter);
 apiRouter.use("/preferencias", preferenciasRouter);
+apiRouter.use("/transcricao", transcricaoRouter);
 
 function isLocalShutdownRequest(req: Request): boolean {
   const ip = String(req.ip ?? req.socket.remoteAddress ?? "").trim();

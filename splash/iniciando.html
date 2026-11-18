@@ -357,26 +357,29 @@
         }
 
         function pollApi() {
-          if (failed || redirecting) return;
+          if (redirecting) return;
           // Só confia na API quando o launcher já liberou (passo 4+) — antes disso
           // pode ser o servidor antigo que ainda vai ser encerrado.
+          // Com erro na tela o launcher já saiu: servidor no ar = pode entrar
+          // (erro antigo/clique repetido não prende mais o usuário aqui).
           var launcherOk = status && (status.state === "ready" || status.step >= 4);
           var semLauncher = !status && Date.now() - startedAt > NO_STATUS_MS;
-          if (!launcherOk && !semLauncher) return;
+          if (!failed && !launcherOk && !semLauncher) return;
 
           fetch(API + "/api/startup/ready", { cache: "no-store" })
             .then(function (r) {
               return r.ok ? r.json() : null;
             })
             .then(function (d) {
-              if (!d || failed || redirecting) return;
+              if (!d || redirecting) return;
               if (d.ready) {
                 readyStreak++;
               } else {
                 readyStreak = 0;
               }
-              if (readyStreak >= 2 && (semLauncher || status.state === "ready" || status.step >= 4)) {
+              if (readyStreak >= 2 && (failed || semLauncher || status.state === "ready" || status.step >= 4)) {
                 redirecting = true;
+                errEl.style.display = "none";
                 renderSteps(5, "running");
                 setMessage("Abrindo a tela de login…");
                 setTimeout(function () {
@@ -392,7 +395,11 @@
         function tick() {
           var sec = Math.floor((Date.now() - startedAt) / 1000);
           clockEl.textContent = sec >= 60 ? Math.floor(sec / 60) + "min " + (sec % 60) + "s" : sec + "s";
-          if (failed || redirecting) return;
+          if (failed) {
+            pollApi(); // continua tentando: se o servidor subir, entra sozinho
+            return;
+          }
+          if (redirecting) return;
           if (Date.now() - lastChangeAt > STALL_MS) {
             showError("A abertura ficou parada por muito tempo. Último passo: " + (lastMsg || "desconhecido"));
             return;

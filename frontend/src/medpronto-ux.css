@@ -531,3 +531,15 @@ body {
   overflow-wrap: anywhere;
   cursor: pointer;
 }
+
+/* Chat interno — entrada suave do painel */
+@keyframes chat-painel-entrar {
+  from { opacity: 0; transform: translateX(24px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes chat-fundo-entrar {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.chat-painel { animation: chat-painel-entrar 0.22s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.chat-fundo { animation: chat-fundo-entrar 0.2s ease-out; }

@@ -1,6 +1,7 @@
 import { CalendarClock, ChevronLeft, ChevronRight, Plus, RefreshCw, Settings } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { DataIsoInput } from "../../components/DataIsoInput";
 import { PageHeader } from "../../components/PageHeader";
 import { GradeTempo } from "../../components/agenda/grade/GradeTempo";
 import { HorarioPadraoDialog } from "../../components/agenda/grade/HorarioPadraoDialog";
@@ -23,7 +24,6 @@ import {
   diasDaGradeMes,
   diasDaSemana,
   hojeIso,
-  rotuloDia,
   rotuloMes,
   rotuloPeriodo,
   somarDias,
@@ -168,9 +168,17 @@ export function AgendaGradePage() {
   }, [carregar]);
 
   const medico = medicos.find((m) => m.medico_id === medicoId) ?? null;
-  const agendamentos = useMemo(
+  // Todos do médico (inclui cancelados/"não veio") — só para o painel lateral não
+  // fechar na hora em que a secretária marca "Não veio" ou cancela.
+  const todosDoMedico = useMemo(
     () => (grade?.agendamentos ?? []).filter((a) => a.medico_id === medicoId),
     [grade, medicoId],
+  );
+  // Na agenda (semana, dia, mês e lista) cancelados e "não veio" não aparecem:
+  // o horário fica livre para marcar outro paciente (o banco já não os conta como ocupando).
+  const agendamentos = useMemo(
+    () => todosDoMedico.filter((a) => a.status !== "cancelado" && a.status !== "nao_compareceu"),
+    [todosDoMedico],
   );
   // Mês: pacientes por dia (ignora cancelados e "não veio").
   const ativosPorDia = useMemo(() => {
@@ -183,7 +191,7 @@ export function AgendaGradePage() {
   }, [agendamentos]);
 
   // Painel: sempre a versão mais nova do agendamento (some se saiu do período/médico).
-  const selecionado = agendamentos.find((a) => a.id === selecionadoId) ?? null;
+  const selecionado = todosDoMedico.find((a) => a.id === selecionadoId) ?? null;
 
   // Bloqueios do médico e os da clínica toda (o backend já filtra).
   const bloqueios: Bloqueio[] = grade?.bloqueios ?? [];
@@ -222,21 +230,33 @@ export function AgendaGradePage() {
   const perguntar = (c: Confirmacao) =>
     msg.confirm({ title: c.titulo, message: c.mensagem, confirmLabel: c.botao, cancelLabel: "Cancelar" });
 
-  const rotuloSlot = (data: string, hora: string) => `${rotuloDia(data).curto} ${dataBr(data)} às ${hora}`;
+  /** Move o card na tela na hora, sem esperar o servidor (o recarregar confirma). */
+  const moverNaTela = (mudancas: { id: number; data: string; hora: string }[]) =>
+    setGrade((g) =>
+      g
+        ? {
+            ...g,
+            agendamentos: g.agendamentos.map((a) => {
+              const m = mudancas.find((x) => x.id === a.id);
+              if (!m) return a;
+              const fim = minutosParaHora(horaParaMinutos(m.hora) + a.duracao_minutos);
+              return { ...a, data: m.data, hora: m.hora, hora_fim: fim };
+            }),
+          }
+        : g,
+    );
 
+  /**
+   * Arrastar e soltar: sem a pergunta "Remarcar?" e sem mensagem de sucesso.
+   * Os avisos da agenda (horário bloqueado, sábado/domingo/feriado, prazo de
+   * retorno, conta recebida) continuam aparecendo; se a pessoa desistir, o card volta.
+   */
   /** Soltou em espaço livre: remarcar (fica lado a lado se já houver alguém). */
   const moverPorArraste = async (ag: AgendamentoGrade, data: string, hora: string) => {
     if (ag.data === data && ag.hora === hora) return;
-    const ok = await msg.confirm({
-      title: "Remarcar agendamento?",
-      message: `${ag.paciente_nome}\nde ${rotuloSlot(ag.data, ag.hora)}\npara ${rotuloSlot(data, hora)}\n\nA duração (${ag.duracao_minutos} min) é mantida e a confirmação do WhatsApp será enviada de novo.`,
-      confirmLabel: "Remarcar",
-      cancelLabel: "Cancelar",
-    });
-    if (!ok) return;
+    moverNaTela([{ id: ag.id, data, hora }]);
     try {
-      const feito = await comConfirmacoes((flags) => agendaNovaApi.mover(ag.id, { data, hora, ...flags }), perguntar);
-      if (feito) void msg.success("Agendamento remarcado.");
+      await comConfirmacoes((flags) => agendaNovaApi.mover(ag.id, { data, hora, ...flags }), perguntar);
     } catch (e) {
       void msg.error(e instanceof ApiError ? e.message : "Não foi possível remarcar");
     }
@@ -245,16 +265,12 @@ export function AgendaGradePage() {
 
   /** Soltou em cima de outro card: os dois trocam de lugar. */
   const trocarPorArraste = async (a: AgendamentoGrade, b: AgendamentoGrade) => {
-    const ok = await msg.confirm({
-      title: "Trocar de horário?",
-      message: `${a.paciente_nome}: ${rotuloSlot(a.data, a.hora)} → ${rotuloSlot(b.data, b.hora)}\n${b.paciente_nome}: ${rotuloSlot(b.data, b.hora)} → ${rotuloSlot(a.data, a.hora)}\n\nCada um mantém a própria duração. As confirmações do WhatsApp serão enviadas de novo.`,
-      confirmLabel: "Trocar",
-      cancelLabel: "Cancelar",
-    });
-    if (!ok) return;
+    moverNaTela([
+      { id: a.id, data: b.data, hora: b.hora },
+      { id: b.id, data: a.data, hora: a.hora },
+    ]);
     try {
-      const feito = await comConfirmacoes((flags) => agendaNovaApi.trocar(a.id, b.id, flags), perguntar);
-      if (feito) void msg.success("Horários trocados.");
+      await comConfirmacoes((flags) => agendaNovaApi.trocar(a.id, b.id, flags), perguntar);
     } catch (e) {
       void msg.error(e instanceof ApiError ? e.message : "Não foi possível trocar");
     }
@@ -374,12 +390,18 @@ export function AgendaGradePage() {
           >
             <ChevronRight className="h-4 w-4" aria-hidden />
           </button>
-          <input
-            type="date"
+          {/* DataIsoInput: digitando, só vai para a data ao sair do campo ou apertar Enter
+              (antes buscava a cada tecla, pegando datas parciais como o ano 0002).
+              Escolhendo no calendário, vai na hora. */}
+          <DataIsoInput
             className="legacy-input w-auto"
             aria-label="Ir para a data"
+            title="Digite a data e aperte Enter (ou escolha no calendário)"
             value={dataRef}
-            onChange={(e) => DATA_RE.test(e.target.value) && irPara({ d: e.target.value })}
+            onValueChange={(d) => {
+              const ano = Number(d.slice(0, 4));
+              if (ano >= 1900 && ano <= 2100) irPara({ d });
+            }}
           />
           <span className="agn-barra__periodo">{periodo}</span>
         </div>

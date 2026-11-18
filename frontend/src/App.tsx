@@ -37,6 +37,7 @@ import { CobrancaPrecosPage } from "./pages/cobranca/CobrancaPrecosPage";
 import { CobrancaReceberConveniosPage } from "./pages/cobranca/CobrancaReceberConveniosPage";
 import { CobrancaRelatoriosPage } from "./pages/cobranca/CobrancaRelatoriosPage";
 import { SetupPage } from "./pages/SetupPage";
+import { TranscricaoPilotoPage } from "./pages/TranscricaoPilotoPage";
 import { UsuariosPage } from "./pages/UsuariosPage";
 
 function AppRoutes() {
@@ -119,6 +120,15 @@ function AppRoutes() {
           element={
             <ModuloGuard modulo={["prontuario_escrever", "prontuario_ler", "fila_medico"]}>
               <AtendimentoPage />
+            </ModuloGuard>
+          }
+        />
+        {/* PILOTO: atendimento com transcrição de voz (isolado, não grava no banco). */}
+        <Route
+          path="medico/transcricao-piloto"
+          element={
+            <ModuloGuard modulo={["prontuario_escrever", "fila_medico"]}>
+              <TranscricaoPilotoPage />
             </ModuloGuard>
           }
         />
