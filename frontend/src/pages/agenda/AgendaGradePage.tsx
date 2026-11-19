@@ -370,7 +370,9 @@ export function AgendaGradePage() {
           ))}
         </div>
 
-        <div className="agn-barra__grupo">
+        {/* Data: Hoje ‹ › em cima, campo no meio, período embaixo — tudo centralizado no campo. */}
+        <div className="agn-barra__data">
+          <div className="agn-barra__data-nav">
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => irPara({ d: hojeIso() })}>
             Hoje
           </button>
@@ -390,11 +392,12 @@ export function AgendaGradePage() {
           >
             <ChevronRight className="h-4 w-4" aria-hidden />
           </button>
+          </div>
           {/* DataIsoInput: digitando, só vai para a data ao sair do campo ou apertar Enter
               (antes buscava a cada tecla, pegando datas parciais como o ano 0002).
               Escolhendo no calendário, vai na hora. */}
           <DataIsoInput
-            className="legacy-input w-auto"
+            className="legacy-input agn-barra__data-campo"
             aria-label="Ir para a data"
             title="Digite a data e aperte Enter (ou escolha no calendário)"
             value={dataRef}
@@ -406,14 +409,14 @@ export function AgendaGradePage() {
           <span className="agn-barra__periodo">{periodo}</span>
         </div>
 
-        <div className="agn-barra__grupo">
+        <div className="agn-barra__grupo agn-barra__grupo--medico">
           {ehMedico ? (
             <span className="font-medium">{medico?.nome}</span>
           ) : (
             <label className="flex items-center gap-2 text-sm">
               <span className="font-medium">Médico</span>
               <select
-                className="legacy-input w-auto min-w-[14rem]"
+                className="legacy-input agn-barra__medico"
                 value={medicoId ?? ""}
                 onChange={(e) => {
                   const id = Number(e.target.value);

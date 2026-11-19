@@ -16,7 +16,9 @@ try {
         throw "Nao encontrei iniciar.vbs em $InstallDir"
     }
 
-    $iconRef = 'shell32.dll,140'
+    # Icone do MedPronto (medpronto.ico na pasta instalada); sem ele, usa o do Windows.
+    $iconFile = Join-Path $InstallDir 'medpronto.ico'
+    $iconRef = if (Test-Path -LiteralPath $iconFile) { "$iconFile,0" } else { 'shell32.dll,140' }
 
     $shortcutPath = Join-Path $desktop 'MedPronto.lnk'
     $sc = $ws.CreateShortcut($shortcutPath)

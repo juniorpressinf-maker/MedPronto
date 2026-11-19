@@ -261,12 +261,14 @@ export function AgendarDialog(props: Props) {
     for (;;) {
       try {
         const r = await agendaNovaApi.agendar({ ...base, ...confirmados });
+        // Sem tela de "Agendado." — o card já aparece na agenda.
+        // Só avisa se ficou no mesmo horário de outro paciente.
         const sobre = r.avisos?.sobreposicao ?? [];
-        void msg.success(
-          sobre.length
-            ? `Agendado. Atenção: mesmo horário que ${sobre.map((s) => `${s.paciente_nome} (${s.hora})`).join(", ")}.`
-            : "Agendado.",
-        );
+        if (sobre.length) {
+          void msg.warning(
+            `Agendado no mesmo horário que ${sobre.map((s) => `${s.paciente_nome} (${s.hora})`).join(", ")}.`,
+          );
+        }
         props.onSalvo();
         return;
       } catch (e) {

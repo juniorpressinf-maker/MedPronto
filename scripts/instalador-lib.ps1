@@ -1033,8 +1033,38 @@ function Ensure-MedProntoBuild {
     return $needs
 }
 
+function Remove-MedProntoAtalhosDuplicados {
+    # Apaga da Area de Trabalho do usuario os atalhos MedPronto que duplicam os da
+    # Area de Trabalho publica (criados pelo instalador). So apaga se o atalho
+    # apontar para esta instalacao.
+    param([string]$InstallDir)
+    $pessoal = [Environment]::GetFolderPath('Desktop')
+    if ([string]::IsNullOrWhiteSpace($pessoal)) { return }
+    $raiz = $InstallDir.TrimEnd('\') + '\'
+    $ws = New-Object -ComObject WScript.Shell
+    foreach ($nome in @('MedPronto.lnk', 'MedPronto - parar.lnk')) {
+        $lnk = Join-Path $pessoal $nome
+        if (-not (Test-Path -LiteralPath $lnk)) { continue }
+        try {
+            $alvo = [string]$ws.CreateShortcut($lnk).TargetPath
+            if ($alvo.StartsWith($raiz, [StringComparison]::OrdinalIgnoreCase)) {
+                Remove-Item -LiteralPath $lnk -Force
+                Write-Host "atalho duplicado removido: $lnk"
+            }
+        } catch { }
+    }
+}
+
 function Register-MedProntoShortcuts {
     param([string]$InstallDir)
+    # O instalador (Inno) ja cria MedPronto e MedPronto - parar na Area de Trabalho
+    # PUBLICA. Criar de novo na do usuario deixava 4 icones (2 de cada) no cliente.
+    $publica = [Environment]::GetFolderPath('CommonDesktopDirectory')
+    if (-not [string]::IsNullOrWhiteSpace($publica) -and
+        (Test-Path -LiteralPath (Join-Path $publica 'MedPronto.lnk'))) {
+        Remove-MedProntoAtalhosDuplicados -InstallDir $InstallDir
+        return
+    }
     $script = Join-Path $InstallDir 'criar_atalho.ps1'
     if (-not (Test-Path -LiteralPath $script)) { return }
     $p = Start-Process -FilePath 'powershell.exe' -ArgumentList @(

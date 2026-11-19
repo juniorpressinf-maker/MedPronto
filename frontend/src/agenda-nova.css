@@ -925,3 +925,52 @@
   border-color: #9a3412;
   box-shadow: 0 2px 6px rgba(234, 88, 12, 0.35);
 }
+
+/* Barra da agenda — bloco da data: botões em cima, campo, período embaixo,
+   tudo centralizado. A largura é a da própria fileira Hoje ‹ › (max-content):
+   nunca transborda por cima do botão "Lista", em qualquer zoom.
+   (seletores com .agn-barra para vencer o .legacy-input { width: 100% } geral) */
+.agn-barra .agn-barra__data {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  flex: none;
+  width: max-content;
+  min-width: 11.5rem;
+}
+.agn-barra .agn-barra__data-nav {
+  display: flex;
+  justify-content: center;
+  gap: 0.4rem;
+}
+.agn-barra .agn-barra__data .agn-barra__data-campo {
+  width: 100%;
+  text-align: center;
+}
+.agn-barra .agn-barra__data .agn-barra__periodo {
+  margin-left: 0;
+  width: 100%;
+  text-align: center;
+  flex-basis: auto;
+}
+/* Médico: ocupa o espaço livre da barra (até 32rem) e encolhe em tela apertada
+   em vez de jogar os botões para outra linha. Nome maior e em negrito. */
+.agn-barra .agn-barra__grupo--medico {
+  margin-left: 0.75rem;
+  flex: 1 1 18rem;
+  max-width: 32rem;
+  min-width: 14rem;
+  flex-wrap: nowrap;
+}
+.agn-barra .agn-barra__grupo--medico > label {
+  flex: 1;
+  min-width: 0;
+}
+.agn-barra .agn-barra__grupo--medico .agn-barra__medico {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}

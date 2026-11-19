@@ -392,7 +392,7 @@ function Assert-StagingCompleto {
     }
 
     # Arquivos soltos na raiz que o sistema usa para iniciar/parar/instalar.
-    foreach ($rel in @('package.json', 'package-lock.json', 'iniciar.vbs', 'parar.bat',
+    foreach ($rel in @('package.json', 'package-lock.json', 'iniciar.vbs', 'parar.bat', 'medpronto.ico',
                        'backend\package.json', 'frontend\package.json')) {
         if ((Test-Path -LiteralPath (Join-Path $Root $rel)) -and
             -not (Test-Path -LiteralPath (Join-Path $Staging $rel))) {
@@ -633,6 +633,8 @@ CloseApplicationsFilter=*.exe,*.dll,*.node
 RestartApplications=no
 SetupLogging=yes
 UninstallDisplayName=MedPronto
+SetupIconFile={#StagingDir}\medpronto.ico
+UninstallDisplayIcon={app}\medpronto.ico
 
 [Languages]
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
@@ -656,9 +658,9 @@ Source: "{#StagingDir}\scripts\parar-medpronto.ps1"; DestDir: "{tmp}"; Flags: do
 Source: "{#StagingDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "data\*;.env;logs\*;backups\*;node.bak-inno*;node_modules.bak-inno*;bin.bak-inno*"
 
 [Icons]
-Name: "{group}\MedPronto"; Filename: "{app}\iniciar.vbs"; WorkingDir: "{app}"
+Name: "{group}\MedPronto"; Filename: "{app}\iniciar.vbs"; WorkingDir: "{app}"; IconFilename: "{app}\medpronto.ico"
 Name: "{group}\Parar MedPronto"; Filename: "{app}\parar.bat"; WorkingDir: "{app}"
-Name: "{autodesktop}\MedPronto"; Filename: "{app}\iniciar.vbs"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\MedPronto"; Filename: "{app}\iniciar.vbs"; WorkingDir: "{app}"; IconFilename: "{app}\medpronto.ico"; Tasks: desktopicon
 Name: "{autodesktop}\MedPronto - parar"; Filename: "{app}\parar.bat"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]

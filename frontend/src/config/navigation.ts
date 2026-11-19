@@ -29,6 +29,12 @@ export const navigation: NavItem[] = [
     modulo: ["fila_medico", "fila_recepcao"],
   },
   {
+    label: "Agenda",
+    path: "/agenda",
+    icon: Calendar,
+    modulo: ["agenda", "fila_recepcao"],
+  },
+  {
     label: "Laudos pendentes",
     path: "/medico/laudos-pendentes",
     icon: FileClock,
@@ -40,12 +46,6 @@ export const navigation: NavItem[] = [
     icon: Mic,
     badge: "piloto",
     modulo: ["prontuario_escrever", "fila_medico"],
-  },
-  {
-    label: "Agenda",
-    path: "/agenda",
-    icon: Calendar,
-    modulo: ["agenda", "fila_recepcao"],
   },
   {
     label: "Cobrança",
