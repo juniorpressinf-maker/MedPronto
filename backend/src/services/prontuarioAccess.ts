@@ -39,6 +39,7 @@ export function getDocumentoContext(prontuarioId: number) {
               u.nome AS medico_nome, u.crm AS medico_crm,
               u.impressao_timbrado, u.timbrado_topo_mm, u.timbrado_rodape_mm,
               c.nome AS clinica_nome, c.telefone AS clinica_telefone, c.endereco AS clinica_endereco,
+              c.cidade AS clinica_cidade, c.uf AS clinica_uf,
               c.logo_path AS clinica_logo
        FROM prontuarios pr
        JOIN pacientes p ON p.id = pr.paciente_id
@@ -60,6 +61,8 @@ export function getDocumentoContext(prontuarioId: number) {
         clinica_nome: string | null;
         clinica_telefone: string | null;
         clinica_endereco: string | null;
+        clinica_cidade: string | null;
+        clinica_uf: string | null;
         clinica_logo: string | null;
         data_atendimento: string;
       }

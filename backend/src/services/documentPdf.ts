@@ -8,6 +8,9 @@ export type PdfDocContext = {
   clinica_endereco?: string | null;
   clinica_logo?: string | null;
   clinica_cnpj?: string | null;
+  /** "Cidade (UF), data" antes da assinatura (sem cidade: tenta tirar do fim do endereço) */
+  clinica_cidade?: string | null;
+  clinica_uf?: string | null;
   medico_nome: string;
   medico_crm?: string | null;
   paciente_nome: string;
@@ -25,6 +28,58 @@ function formatDataBr(iso: string): string {
   const [y, m, d] = base.split("-");
   if (!y || !m || !d) return iso;
   return `${d}/${m}/${y}`;
+}
+
+const MESES = [
+  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+];
+const UFS = new Set([
+  "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA",
+  "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO",
+]);
+const MINUSCULAS = new Set(["de", "da", "do", "das", "dos", "e"]);
+
+/** "RIBEIRÃO PRETO" → "Ribeirão Preto"; "SÃO JOSÉ DOS CAMPOS" → "São José dos Campos". */
+function nomeProprio(v: string): string {
+  return v
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .map((p, i) => (i > 0 && MINUSCULAS.has(p) ? p : p.charAt(0).toUpperCase() + p.slice(1)))
+    .join(" ");
+}
+
+/** Cidade/UF do cadastro; sem isso, tenta o fim do endereço ("... - Cidade/UF", "Cidade - UF"). */
+function cidadeUf(ctx: PdfDocContext): string | null {
+  let cidade = ctx.clinica_cidade?.trim() || "";
+  let uf = ctx.clinica_uf?.trim().toUpperCase() || "";
+  if (!cidade && ctx.clinica_endereco) {
+    const m = ctx.clinica_endereco
+      .trim()
+      .match(/([A-Za-zÀ-ÿ' .]+?)\s*(?:-|\/|,)\s*([A-Za-z]{2})\b[\s,.-]*(?:CEP:?\s*)?(?:\d{5}-?\d{3})?\s*$/);
+    if (m && UFS.has(m[2].toUpperCase())) {
+      cidade = m[1].trim();
+      uf = m[2].toUpperCase();
+    }
+  }
+  if (!cidade) return null;
+  return uf ? `${nomeProprio(cidade)} (${uf})` : nomeProprio(cidade);
+}
+
+/** Data de hoje por extenso: "20 de novembro de 2026". */
+function dataHojeExtenso(): string {
+  const d = new Date();
+  return `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`;
+}
+
+/** Modo clássico, antes da assinatura: "Ribeirão Preto (SP), 20 de novembro de 2026." */
+function desenharLocalData(doc: PDFKit.PDFDocument, ctx: PdfDocContext) {
+  const local = cidadeUf(ctx);
+  doc.moveDown(2);
+  doc.font("Helvetica").fontSize(11);
+  doc.text(`${local ? `${local}, ` : ""}${dataHojeExtenso()}.`, { align: "center" });
+  doc.moveDown(2.5);
 }
 
 function areaUtil(doc: PDFKit.PDFDocument) {
@@ -157,7 +212,7 @@ export function gerarPdfReceita(
       doc.font("Helvetica-Bold").text("Observações:");
       doc.font("Helvetica").text(observacoes.trim());
     }
-    doc.moveDown(2);
+    desenharLocalData(doc, ctx);
     doc.text("_________________________________________", { align: "center" });
     doc.text(ctx.medico_nome, { align: "center" });
     if (ctx.medico_crm) doc.text(`CRM ${ctx.medico_crm}`, { align: "center" });
@@ -193,7 +248,7 @@ export function gerarPdfAtestado(
       doc.text(dados.texto_livre.trim());
       doc.moveDown(0.6);
     }
-    doc.moveDown(2);
+    desenharLocalData(doc, ctx);
     doc.text("_________________________________________", { align: "center" });
     doc.text(ctx.medico_nome, { align: "center" });
     if (ctx.medico_crm) doc.text(`CRM ${ctx.medico_crm}`, { align: "center" });
@@ -204,18 +259,32 @@ export function gerarPdfPedidoExame(
   ctx: PdfDocContext,
   exames: string,
   observacoes?: string | null,
+  cid?: { codigo?: string | null; descricao?: string | null } | null,
 ): Promise<Buffer> {
   return pdfToBuffer((doc) => {
     drawHeader(doc, ctx, "PEDIDO DE EXAME");
     doc.fontSize(11).font("Helvetica-Bold").text("Exames solicitados:");
     doc.moveDown(0.3);
-    doc.font("Helvetica").text(exames.trim() || "(não informado)");
+    // Um exame por linha, numerado (igual ao Clinicar)
+    const linhas = exames
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    doc.font("Helvetica");
+    if (!linhas.length) doc.text("(não informado)");
+    linhas.forEach((l, i) => doc.text(`${i + 1}. ${l}`));
+    const cidTexto = [cid?.codigo, cid?.descricao].filter((x) => x && String(x).trim()).join(" — ");
+    if (cidTexto) {
+      doc.moveDown(0.8);
+      doc.font("Helvetica-Bold").text("CID-10: ", { continued: true });
+      doc.font("Helvetica").text(cidTexto);
+    }
     if (observacoes?.trim()) {
       doc.moveDown(0.8);
-      doc.font("Helvetica-Bold").text("Observações:");
+      doc.font("Helvetica-Bold").text("Indicação clínica / observações:");
       doc.font("Helvetica").text(observacoes.trim());
     }
-    doc.moveDown(2);
+    desenharLocalData(doc, ctx);
     doc.text("_________________________________________", { align: "center" });
     doc.text(ctx.medico_nome, { align: "center" });
     if (ctx.medico_crm) doc.text(`CRM ${ctx.medico_crm}`, { align: "center" });

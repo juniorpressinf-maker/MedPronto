@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AtendimentoCardTitulo } from "./AtendimentoCardTitulo";
-import { FormActions } from "./FormActions";
+import { CidAutocomplete } from "./CidAutocomplete";
+import { DocAcoes } from "./DocAcoes";
 import { NomeAutocomplete } from "./NomeAutocomplete";
 import { ApiError, PdfCancelado, api, type PedidoExame } from "../lib/api";
-import { snapshotForm } from "../lib/formDirty";
 import { upperPrompt } from "../lib/upperPrompt";
-import { focarCampoInicial } from "../lib/focoInicial";
 import { useAutoSalvar } from "../lib/useAutoSalvar";
 import { useMessageBox } from "../lib/messageBoxContext";
 
@@ -14,153 +12,124 @@ type Props = {
   pacienteNome: string;
   somenteLeitura?: boolean;
   onConsultaEncerrada?: () => void;
+  /** Salvou: o atendimento atualiza a marcação do botão "Pedido exame". */
+  onMudou?: () => void;
   onVoltar: () => void;
 };
 
-function snapshotPedido(form: PedidoExame) {
-  return snapshotForm({
-    exames_solicitados: form.exames_solicitados,
-    observacoes: form.observacoes ?? "",
-  });
-}
+const VAZIO = (): PedidoExame => ({ exames_solicitados: "", observacoes: "", cid_codigo: "", cid_descricao: "" });
 
-const emptyPedido = (): PedidoExame => ({
-  exames_solicitados: "",
-  observacoes: "",
+/** Linhas em branco não contam como alteração. */
+const snapshot = (f: PedidoExame) =>
+  JSON.stringify([
+    f.exames_solicitados.split("\n").map((l) => l.trim()).filter(Boolean).join("\n"),
+    f.observacoes ?? "",
+    f.cid_codigo ?? "",
+  ]);
+
+/** O que vai para o servidor: um exame por linha, sem linhas vazias. */
+const paraSalvar = (f: PedidoExame): PedidoExame => ({
+  ...f,
+  exames_solicitados: f.exames_solicitados
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join("\n"),
 });
 
-function examesParaLinhas(texto: string): string[] {
-  if (!texto.trim()) return [""];
-  return texto.split(/\r?\n/);
-}
-
-function linhasParaExames(linhas: string[]): string {
-  return linhas.join("\n");
-}
-
+/** Pedido de exames (igual ao Clinicar): um exame por linha numerada, busca automática (TUSS), CID. */
 export function AtendimentoPedidoPanel({
   prontuarioId,
   pacienteNome,
   somenteLeitura = false,
   onConsultaEncerrada,
+  onMudou,
   onVoltar,
 }: Props) {
   const msg = useMessageBox();
-  const [form, setForm] = useState<PedidoExame>(emptyPedido);
-  const [linhasExames, setLinhasExames] = useState<string[]>([""]);
-  const [baseline, setBaseline] = useState(() => snapshotPedido(emptyPedido()));
+  const [form, setForm] = useState<PedidoExame>(VAZIO);
+  const [linhas, setLinhas] = useState<string[]>([""]);
+  const [baseline, setBaseline] = useState("");
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const listaRef = useRef<HTMLDivElement>(null);
-  const focoAposLinhas = useRef<number | null>(null);
+  const focoApos = useRef<number | null>(null);
 
-  const focarLinha = (index: number) => {
+  const focarLinha = (i: number) =>
     requestAnimationFrame(() => {
-      const inputs = listaRef.current?.querySelectorAll<HTMLInputElement>(
-        ".pedido-exame-linha__input",
-      );
-      const el = inputs?.[index];
+      const el = listaRef.current?.querySelectorAll<HTMLInputElement>(".pedido__input")[i];
       el?.focus();
       el?.select();
     });
-  };
 
   useEffect(() => {
-    if (focoAposLinhas.current == null) return;
-    const idx = focoAposLinhas.current;
-    focoAposLinhas.current = null;
-    focarLinha(idx);
-  }, [linhasExames]);
+    if (focoApos.current == null) return;
+    const i = focoApos.current;
+    focoApos.current = null;
+    focarLinha(i);
+  }, [linhas]);
 
   useEffect(() => {
-    let active = true;
-    const empty = emptyPedido();
-    setForm(empty);
-    setLinhasExames([""]);
-    setBaseline(snapshotPedido(empty));
-    setSaved(false);
-
+    let vivo = true;
+    setForm(VAZIO());
+    setLinhas([""]);
+    setBaseline("");
     void (async () => {
       try {
         const r = await api.pedidoExameGet(prontuarioId);
-        if (!active) return;
-        const next = r.pedido ?? emptyPedido();
-        setForm(next);
-        setLinhasExames(examesParaLinhas(next.exames_solicitados));
-        setBaseline(snapshotPedido(next));
-        setSaved(Boolean(r.pedido?.id));
-        focarCampoInicial(listaRef.current);
+        if (!vivo) return;
+        const p = r.pedido ?? VAZIO();
+        setForm(p);
+        // sempre uma linha em branco no fim para o próximo exame
+        setLinhas(p.exames_solicitados ? [...p.exames_solicitados.split(/\r?\n/), ""] : [""]);
+        setBaseline(snapshot(p));
+        focarLinha(0);
       } catch (e) {
-        if (!active) return;
-        void msg.error(e instanceof ApiError ? e.message : "Erro ao carregar pedido");
+        if (vivo) void msg.error(e instanceof ApiError ? e.message : "Erro ao carregar o pedido");
       }
     })();
-
     return () => {
-      active = false;
+      vivo = false;
     };
   }, [prontuarioId, msg]);
 
-  const dirty = useMemo(
-    () => snapshotPedido(form) !== baseline,
-    [form, baseline],
-  );
-
-  const atualizarLinhas = (linhas: string[]) => {
+  const atualizarLinhas = (novas: string[]) => {
     if (somenteLeitura) return;
-    const normalizadas = linhas.length ? linhas : [""];
-    setLinhasExames(normalizadas);
-    setForm((prev) => ({
-      ...prev,
-      exames_solicitados: linhasParaExames(normalizadas),
-    }));
+    const n = novas.length ? novas : [""];
+    setLinhas(n);
+    setForm((f) => ({ ...f, exames_solicitados: n.join("\n") }));
   };
 
-  const setLinha = (idx: number, valor: string) => {
-    if (somenteLeitura) return;
-    atualizarLinhas(
-      linhasExames.map((linha, i) =>
-        i === idx ? upperPrompt(valor) : linha,
-      ),
-    );
-  };
-
-  const avancarParaProximoExame = (idx: number, linhas: string[] = linhasExames) => {
-    if (linhas !== linhasExames) atualizarLinhas(linhas);
-    if (idx + 1 < linhas.length && !linhas[idx + 1]?.trim()) {
-      focarLinha(idx + 1);
+  /** Enter/escolha na lista: vai para a próxima linha vazia (cria uma se precisar). */
+  const avancar = (idx: number, base: string[] = linhas) => {
+    let b = base;
+    if (b[b.length - 1]?.trim()) b = [...b, ""];
+    const vazio = b.findIndex((l, i) => i > idx && !l.trim());
+    if (vazio >= 0) {
+      if (b !== linhas) atualizarLinhas(b);
+      focoApos.current = vazio;
+      if (b === linhas) focarLinha(vazio);
       return;
     }
-    const proximoVazio = linhas.findIndex(
-      (linha, i) => i > idx && !linha.trim(),
-    );
-    if (proximoVazio >= 0) {
-      focarLinha(proximoVazio);
-      return;
-    }
-    const next = [...linhas];
-    const ins = idx + 1;
-    if (ins >= next.length) {
-      next.push("");
-    } else {
-      next.splice(ins, 0, "");
-    }
-    focoAposLinhas.current = ins;
+    const next = [...b];
+    next.splice(idx + 1, 0, "");
+    focoApos.current = idx + 1;
     atualizarLinhas(next);
   };
 
+  const dirty = useMemo(() => baseline !== "" && snapshot(form) !== baseline, [form, baseline]);
+
   const salvar = async (silencioso = false): Promise<boolean> => {
     if (somenteLeitura) return false;
-    if (!form.exames_solicitados.trim()) {
-      if (!silencioso) void msg.warning("Informe os exames solicitados");
+    const dados = paraSalvar(form);
+    if (!dados.exames_solicitados.trim()) {
+      if (!silencioso) void msg.warning("Informe os exames solicitados.");
       return false;
     }
     if (!silencioso) setSaving(true);
     try {
-      await api.pedidoExameSave(prontuarioId, form);
-      setBaseline(snapshotPedido(form));
-      setSaved(true);
-      if (!silencioso) void msg.success("Pedido salvo");
+      await api.pedidoExameSave(prontuarioId, dados);
+      setBaseline(snapshot(form));
+      onMudou?.();
       return true;
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
@@ -168,25 +137,20 @@ export function AtendimentoPedidoPanel({
         onConsultaEncerrada?.();
         return false;
       }
-      if (!silencioso) void msg.error(e instanceof ApiError ? e.message : "Erro ao salvar");
+      if (!silencioso) void msg.error(e instanceof ApiError ? e.message : "Erro ao salvar o pedido");
+      return false;
     } finally {
       setSaving(false);
     }
-    return false;
   };
 
-  // Salva sozinho (1,5 s após digitar e ao sair); o botão Salvar vira indicador.
-  const indicadorSalvo = useAutoSalvar({
-    chave: JSON.stringify(snapshotPedido(form)),
-    dirty,
-    desligado: somenteLeitura,
-    salvar,
-  });
+  const indicador = useAutoSalvar({ chave: snapshot(form), dirty, desligado: somenteLeitura, salvar });
 
   const imprimir = async () => {
     try {
       // Com alteração não salva: salva antes (o PDF sai do que está gravado).
-      await api.pedidoExamePdf(
+      // Abre direto a janela da impressora (igual ao Clinicar).
+      await api.pedidoExameImprimir(
         prontuarioId,
         dirty
           ? async () => {
@@ -201,97 +165,74 @@ export function AtendimentoPedidoPanel({
   };
 
   return (
-    <div className="prontuario-secao pedido-exame-panel space-y-4">
-      <AtendimentoCardTitulo titulo="Pedido de exame" pacienteNome={pacienteNome} />
-
-      <div>
-        <label className="prontuario-secao__titulo">Exames solicitados</label>
-        <div className="pedido-exame-lista mt-1" ref={listaRef}>
-          {linhasExames.map((linha, idx) => (
-            <div key={idx} className="pedido-exame-linha">
-              <NomeAutocomplete
-                className="pedido-exame-linha__input"
-                value={linha}
-                readOnly={somenteLeitura}
-                placeholder={`Exame ${idx + 1}`}
-                buscar={(q) => api.pedidoExameSugestoes(prontuarioId, q).then((r) => r.itens)}
-                onChange={(v) => setLinha(idx, v)}
-                focoInicial={idx === 0}
-                onSelecionar={(nome) =>
-                  avancarParaProximoExame(
-                    idx,
-                    linhasExames.map((l, i) => (i === idx ? upperPrompt(nome) : l)),
-                  )
+    <div className="doc-painel pedido">
+      <header className="doc-painel__topo">
+        <h2>Pedido de exames</h2>
+        <span>{pacienteNome}</span>
+      </header>
+      {somenteLeitura ? <p className="doc-aviso">Consulta finalizada: pedido só para leitura e impressão.</p> : null}
+      <label className="doc-rotulo">
+        Exames solicitados <small>(Enter vai para o próximo)</small>
+      </label>
+      <div className="pedido__lista" ref={listaRef}>
+        {linhas.map((linha, idx) => (
+          <div key={idx} className="pedido__linha">
+            <span className="pedido__n">{idx + 1}.</span>
+            <NomeAutocomplete
+              className="pedido__input"
+              value={linha}
+              readOnly={somenteLeitura}
+              placeholder={idx === 0 ? "Digite o exame (ex.: HEMOGRAMA)" : `Exame ${idx + 1}`}
+              buscar={(q) => api.pedidoExameSugestoes(prontuarioId, q).then((r) => r.itens)}
+              onChange={(v) => atualizarLinhas(linhas.map((l, i) => (i === idx ? upperPrompt(v) : l)))}
+              onSelecionar={(nome) => avancar(idx, linhas.map((l, i) => (i === idx ? upperPrompt(nome) : l)))}
+              focoInicial={idx === 0}
+              onKeyDown={(e) => {
+                if (somenteLeitura) return;
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  avancar(idx);
                 }
-                onKeyDown={(e) => {
-                  if (somenteLeitura) return;
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    avancarParaProximoExame(idx);
-                  }
-                }}
-              />
-              {!somenteLeitura ? (
-                <button
-                  type="button"
-                  className="pedido-exame-linha__del btn btn-primary btn-sm"
-                  onClick={() =>
-                    atualizarLinhas(linhasExames.filter((_, i) => i !== idx))
-                  }
-                  disabled={linhasExames.length <= 1}
-                  title="Remover linha"
-                >
-                  ×
-                </button>
-              ) : null}
-            </div>
-          ))}
-        </div>
-        {!somenteLeitura ? (
-          <button
-            type="button"
-            className="btn btn-primary btn-sm mt-2"
-            onClick={() => {
-              const next = [...linhasExames, ""];
-              atualizarLinhas(next);
-              focoAposLinhas.current = next.length - 1;
-            }}
-          >
-            + Exame
-          </button>
-        ) : null}
+              }}
+            />
+            {!somenteLeitura && !(idx === linhas.length - 1 && !linha.trim()) ? (
+              <button
+                type="button"
+                className="pedido__del"
+                title="Remover linha"
+                onClick={() => atualizarLinhas(linhas.filter((_, i) => i !== idx))}
+              >
+                ×
+              </button>
+            ) : null}
+          </div>
+        ))}
       </div>
-
-      <div>
-        <label className="prontuario-secao__titulo">Observações</label>
-        <div className="prontuario-campo prontuario-campo--linhas pedido-exame-obs mt-1">
+      <div className="doc-grade">
+        {/* o campo de CID já tem o próprio título "CID-10:" */}
+        <div className="pedido__cid">
+          <CidAutocomplete
+            codigo={form.cid_codigo ?? ""}
+            descricao={form.cid_descricao ?? ""}
+            disabled={somenteLeitura}
+            onChange={(codigo, descricao) => setForm((f) => ({ ...f, cid_codigo: codigo, cid_descricao: descricao }))}
+          />
+        </div>
+        <div>
+          <label className="doc-rotulo" htmlFor={`pedido-obs-${prontuarioId}`}>
+            Indicação clínica / observações
+          </label>
           <textarea
-            className="prontuario-secao__area w-full"
+            id={`pedido-obs-${prontuarioId}`}
+            className="doc-area"
             rows={3}
             value={form.observacoes ?? ""}
             readOnly={somenteLeitura}
-            onChange={(e) =>
-              setForm({ ...form, observacoes: upperPrompt(e.target.value) })
-            }
+            onChange={(e) => setForm((f) => ({ ...f, observacoes: upperPrompt(e.target.value) }))}
           />
         </div>
       </div>
-
-      <FormActions
-        saving={saving}
-        dirty={dirty}
-        saved={saved}
-        saveLabel="Salvar pedido"
-        onSave={() => void salvar()}
-        indicador={indicadorSalvo}
-        onBack={onVoltar}
-        backLabel="Voltar ao prontuário"
-        somenteLeitura={somenteLeitura}
-      >
-        <button type="button" className="btn btn-primary" onClick={() => void imprimir()}>
-          Imprimir PDF
-        </button>
-      </FormActions>
+      <DocAcoes indicador={indicador} saving={saving} onVoltar={onVoltar} onImprimir={() => void imprimir()} />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { Check } from "lucide-react";
-import type { DragEvent } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import type { AgendamentoGrade, AgendamentoTipo } from "../../../lib/agendaNova/api";
 import { corTextoSobre } from "../../../lib/agendaNova/horario";
 import { labelStatusAgendamento } from "../../../lib/agendamentoStatus";
@@ -21,19 +21,18 @@ type Props = {
   alturaPx: number;
   style: React.CSSProperties;
   onClick: () => void;
-  /** A4d: "origem" = card sendo arrastado; "troca" = soltar aqui troca os dois */
-  destaque?: "origem" | "troca" | null;
-  dnd?: {
-    draggable: boolean;
-    onDragStart: (e: DragEvent) => void;
-    onDragEnd: () => void;
-    onDragOver: (e: DragEvent) => void;
-    onDragLeave: () => void;
-    onDrop: (e: DragEvent) => void;
+  /** "origem" = card sendo arrastado; "troca" = soltar aqui troca os dois; "negado" = não dá para trocar */
+  destaque?: "origem" | "troca" | "negado" | null;
+  /** Arraste próprio (ponteiro): quem decide se pode é a grade. */
+  arraste?: {
+    arrastavel: boolean;
+    /** por que NÃO pode arrastar (aparece no balão e no texto ao passar o mouse) */
+    motivo: string | null;
+    onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => void;
   };
 };
 
-export function CardAgendamento({ ag, cor, alturaPx, style, onClick, destaque, dnd }: Props) {
+export function CardAgendamento({ ag, cor, alturaPx, style, onClick, destaque, arraste }: Props) {
   const inativo = INATIVOS.has(ag.status);
   const procedimentos = ag.procedimentos.map((p) => p.nome).join(", ");
   const status = labelStatusAgendamento(ag.status);
@@ -46,15 +45,18 @@ export function CardAgendamento({ ag, cor, alturaPx, style, onClick, destaque, d
   return (
     <button
       type="button"
-      className={`agn-card ${inativo ? "agn-card--inativo" : ""} agn-card--${ag.status} ${destaque ? `agn-card--${destaque}` : ""} ${dnd?.draggable ? "agn-card--arrastavel" : ""}`}
+      className={`agn-card ${inativo ? "agn-card--inativo" : ""} agn-card--${ag.status} ${destaque ? `agn-card--${destaque}` : ""} ${arraste?.arrastavel ? "agn-card--arrastavel" : ""}`}
       style={{ ...style, background: cor, color: corTextoSobre(cor) }}
-      title={dnd?.draggable ? `${titulo}\n\nArraste para remarcar; solte em outro card para trocar.` : titulo}
-      draggable={dnd?.draggable ?? false}
-      onDragStart={dnd?.onDragStart}
-      onDragEnd={dnd?.onDragEnd}
-      onDragOver={dnd?.onDragOver}
-      onDragLeave={dnd?.onDragLeave}
-      onDrop={dnd?.onDrop}
+      data-agn-card={ag.id}
+      title={
+        arraste?.arrastavel
+          ? `${titulo}\n\nArraste para remarcar; solte em outro card para trocar.`
+          : arraste?.motivo
+            ? `${titulo}\n\nNão dá para arrastar: ${arraste.motivo}`
+            : titulo
+      }
+      draggable={false}
+      onPointerDown={arraste?.onPointerDown}
       aria-label={titulo.replace(/\n/g, ". ")}
       onClick={(e) => {
         e.stopPropagation();

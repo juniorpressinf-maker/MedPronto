@@ -543,3 +543,13 @@ body {
 }
 .chat-painel { animation: chat-painel-entrar 0.22s cubic-bezier(0.2, 0.7, 0.2, 1); }
 .chat-fundo { animation: chat-fundo-entrar 0.2s ease-out; }
+
+/* Cadastros: Voltar/Salvar fixos no rodapé do cartão (formulário alto rola por cima) */
+.cadastro-form__rodape--fixo {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin: 0.5rem -1rem -1rem;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(4px);
+}

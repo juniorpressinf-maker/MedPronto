@@ -26,6 +26,8 @@ export function ClinicaSetupPage() {
         cnpj_cpf: data.cnpj_cpf || undefined,
         telefone: data.telefone || undefined,
         endereco: data.endereco || undefined,
+        cidade: data.cidade || undefined,
+        uf: data.uf || undefined,
         email: data.email,
         email_senha: data.email_senha,
         logo: data.logo || undefined,

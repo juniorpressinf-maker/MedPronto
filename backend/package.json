@@ -44,6 +44,7 @@
     "test:m10": "tsx scripts/lib/rodarEmCopia.ts scripts/test-m10-cobranca.ts",
     "test:m11": "tsx scripts/lib/rodarEmCopia.ts scripts/test-m11-cobranca.ts",
     "test:m10p": "tsx scripts/lib/rodarEmCopia.ts scripts/test-m10p-faturamento-convenio.ts",
+    "test:fin1": "tsx scripts/lib/rodarEmCopia.ts scripts/test-fin1-financeiro.ts",
     "test:todos": "tsx scripts/lib/rodarEmCopia.ts --todos",
     "preparar-teste": "tsx scripts/preparar-teste.ts"
   },

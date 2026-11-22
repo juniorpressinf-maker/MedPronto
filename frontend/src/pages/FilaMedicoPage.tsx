@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { CheckCircle2, ClipboardCheck, FileText, FlaskConical, LogIn, Stethoscope, UserX, Wallet } from "lucide-react";
 import { DataIsoInput } from "../components/DataIsoInput";
 import { FinalizarExameDialog } from "../components/FinalizarExameDialog";
 import { ClinicaBrandMark } from "../components/ClinicaBrandMark";
@@ -18,8 +19,8 @@ import { isDataIsoValida } from "../lib/dataIso";
 import {
   classeBadgeContaAgendamento,
   labelBadgeContaAgendamento,
-  classeBotaoContaAgendamento,
 } from "../lib/cobrancaFormat";
+import "../botoes-modernos.css";
 import { corMedicoAgenda } from "../lib/corMedicoAgenda";
 import {
   ASO_TITULO_CURTO,
@@ -134,19 +135,19 @@ function Coluna({
                 {onCheckin && a.status === "agendado" ? (
                   <button
                     type="button"
-                    className="btn btn-primary btn-sm"
+                    className="acao-pill acao-pill--primaria"
                     onClick={() => onCheckin(a.id)}
                   >
-                    Check-in
+                    <LogIn size={18} aria-hidden /> Check-in
                   </button>
                 ) : null}
                 {onNaoVeio && a.status === "agendado" ? (
                   <button
                     type="button"
-                    className="btn btn-secondary btn-sm"
+                    className="acao-pill acao-pill--suave acao-pill--alerta"
                     onClick={() => onNaoVeio(a.id)}
                   >
-                    Não veio
+                    <UserX size={18} aria-hidden /> Não veio
                   </button>
                 ) : null}
                 {onAtender &&
@@ -154,10 +155,10 @@ function Coluna({
                 (a.status === "presente" || a.status === "em_atendimento") ? (
                   <button
                     type="button"
-                    className="btn btn-primary btn-sm"
+                    className="acao-pill acao-pill--primaria"
                     onClick={() => onAtender(a)}
                   >
-                    Atender
+                    <Stethoscope size={18} aria-hidden /> Atender
                   </button>
                 ) : null}
                 {onFinalizarExame &&
@@ -165,10 +166,10 @@ function Coluna({
                 (a.status === "presente" || a.status === "em_atendimento") ? (
                   <button
                     type="button"
-                    className="btn btn-primary btn-sm"
+                    className="acao-pill acao-pill--primaria"
                     onClick={() => onFinalizarExame(a)}
                   >
-                    Finalizar
+                    <CheckCircle2 size={18} aria-hidden /> Finalizar
                   </button>
                 ) : null}
                 {/* Só-exame: "Finalizar" já abre o diálogo; aqui só depois de finalizado.
@@ -183,36 +184,36 @@ function Coluna({
                       a.status === "finalizado")) ? (
                   <button
                     type="button"
-                    className="btn btn-secondary btn-sm"
+                    className="acao-pill acao-pill--suave"
                     onClick={() => onVerExames(a)}
                   >
-                    Exames
+                    <FlaskConical size={18} aria-hidden /> Exames
                   </button>
                 ) : null}
                 {onVerConsulta && temProntuario && a.prontuario_id ? (
                   <button
                     type="button"
-                    className="btn btn-secondary btn-sm"
+                    className="acao-pill acao-pill--suave"
                     onClick={() => onVerConsulta(a.prontuario_id!)}
                   >
-                    Ver consulta
+                    <FileText size={18} aria-hidden /> Ver consulta
                   </button>
                 ) : null}
                 {onVerAdmissional && temAso && a.admissional_id ? (
                   <button
                     type="button"
-                    className="btn btn-secondary btn-sm"
+                    className="acao-pill acao-pill--suave"
                     onClick={() => onVerAdmissional(a.admissional_id!)}
                   >
-                    Ver {ASO_TITULO_CURTO}
+                    <ClipboardCheck size={18} aria-hidden /> Ver {ASO_TITULO_CURTO}
                   </button>
                 ) : null}
                 {podeCobranca && a.conta_id ? (
                   <Link
                     to={linkCobrancaConta(a.conta_id, cobrancaReturn, "Voltar à fila")}
-                    className={classeBotaoContaAgendamento(a.conta_status, "no-underline")}
+                    className={`acao-pill no-underline ${a.conta_status === "pago" ? "acao-pill--pago" : "acao-pill--suave"}`}
                   >
-                    Conta
+                    <Wallet size={18} aria-hidden /> Conta
                   </Link>
                 ) : null}
               </div>

@@ -1,0 +1,270 @@
+/* Receita e pedido de exames no estilo do Clinicar ("folha de papel") + marcações dos botões */
+
+.atend-abas {
+  margin-bottom: 1rem;
+}
+.atend-abas__marca {
+  margin-left: 0.45rem;
+  min-width: 1.35rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 0.72rem;
+  line-height: 1.35rem;
+}
+
+/* Painel em "folha de papel" */
+.doc-painel {
+  max-width: 64rem;
+  margin: 0 auto 1.5rem;
+  padding: 1.25rem 1.5rem 1rem;
+  border: 1px solid #d6cfc0;
+  border-radius: 6px;
+  background: #fffdf7;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+  color: #1f2937;
+}
+.doc-painel__topo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #1e3a5f;
+}
+.doc-painel__topo h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #1e3a5f;
+}
+.doc-painel__topo span {
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.doc-aviso {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.85rem;
+}
+.doc-rotulo {
+  display: block;
+  margin: 0.85rem 0 0.3rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #334155;
+}
+.doc-rotulo small {
+  font-weight: 400;
+  color: #64748b;
+}
+.doc-area {
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background-color: #fff;
+  background-image: repeating-linear-gradient(transparent, transparent 1.55rem, #e7edf5 1.55rem, #e7edf5 1.6rem);
+  line-height: 1.6rem;
+  font: inherit;
+  resize: vertical;
+}
+.doc-area:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+.doc-dica {
+  margin: 0.3rem 0 0;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+.doc-grade {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+@media (max-width: 900px) {
+  .doc-grade {
+    grid-template-columns: 1fr;
+  }
+}
+.doc-add {
+  margin-top: 0.5rem;
+}
+.doc-acoes {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed #d6cfc0;
+}
+.doc-acoes__status {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+.doc-acoes .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* Receita */
+.receita__table .legacy-input {
+  min-height: 2rem;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.85rem;
+}
+.receita__table th:nth-child(1),
+.receita__col-medicamento {
+  width: 32%;
+}
+.receita__table th:nth-child(4),
+.receita__col-posologia {
+  width: 24%;
+}
+.receita__table th:nth-child(6) {
+  width: 4.5rem;
+}
+.receita__table td {
+  padding: 0.3rem 0.35rem;
+  vertical-align: middle;
+}
+.receita__memoria td {
+  padding: 0.15rem 0.5rem 0.55rem !important;
+  background: #f8fafc;
+}
+.receita__memoria-titulo {
+  margin-right: 0.5rem;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+.receita__memoria-chip {
+  display: inline-flex;
+  align-items: stretch;
+  margin: 0.15rem 0.35rem 0.15rem 0;
+  border: 1px solid #93c5fd;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #eff6ff;
+}
+.receita__memoria-chip button {
+  border: 0;
+  background: transparent;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.78rem;
+  color: #1e40af;
+  cursor: pointer;
+}
+.receita__memoria-chip button:hover {
+  background: #dbeafe;
+}
+.receita__memoria-chip .receita__memoria-ocultar {
+  padding: 0.15rem 0.45rem;
+  border-left: 1px solid #93c5fd;
+  color: #64748b;
+}
+
+/* Pedido de exames */
+.pedido__lista {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+}
+.pedido__linha {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.4rem;
+  border-bottom: 1px solid #e7edf5;
+}
+.pedido__linha:last-child {
+  border-bottom: 0;
+}
+.pedido__linha:focus-within {
+  background: #eff6ff;
+}
+.pedido__n {
+  min-width: 1.6rem;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  text-align: right;
+}
+.pedido__input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.45rem 0.35rem;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-transform: uppercase;
+}
+.pedido__input:focus {
+  outline: none;
+}
+.pedido__input::placeholder {
+  text-transform: none;
+  color: #94a3b8;
+}
+.pedido__del {
+  border: 0;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+.pedido__del:hover:not(:disabled) {
+  color: #dc2626;
+}
+
+/* Marcação dentro dos botões do atendimento (botão azul): contorno branco para destacar */
+.btn .atend-abas__marca {
+  display: inline-block;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.9);
+}
+.doc-painel {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Receita: todas as colunas aparecem, sem rolar para o lado
+   (vence o .data-table { min-width: max-content } geral). */
+.doc-painel {
+  max-width: 80rem;
+}
+.doc-painel .receita__table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+.doc-painel .receita__table th {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doc-painel .receita__table th:nth-child(1) { width: 31%; }
+.doc-painel .receita__table th:nth-child(2) { width: 10%; }
+.doc-painel .receita__table th:nth-child(3) { width: 13%; }
+.doc-painel .receita__table th:nth-child(4) { width: 24%; }
+.doc-painel .receita__table th:nth-child(5) { width: 10%; }
+.doc-painel .receita__table th:nth-child(6) { width: 7%; }
+.doc-painel .receita__table th:nth-child(7) { width: 2.6rem; }
+.doc-painel .receita__table .legacy-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.doc-painel .receita__tabela {
+  overflow-x: hidden;
+}

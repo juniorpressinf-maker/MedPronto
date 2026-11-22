@@ -18,6 +18,8 @@ export type ClinicaFormData = {
   cnpj_cpf: string;
   telefone: string;
   endereco: string;
+  cidade: string;
+  uf: string;
   email: string;
   email_senha: string;
   logo: string;
@@ -39,6 +41,8 @@ export function emptyClinicaForm(): ClinicaFormData {
     cnpj_cpf: "",
     telefone: "",
     endereco: "",
+    cidade: "",
+    uf: "",
     email: "",
     email_senha: "",
     logo: "",
@@ -170,6 +174,8 @@ export function ClinicaForm({ mode, layout = "default", initial, saving, onSubmi
       cnpj_cpf: form.cnpj_cpf.trim(),
       telefone: form.telefone.trim(),
       endereco: form.endereco.trim(),
+      cidade: form.cidade.trim().toUpperCase(),
+      uf: form.uf.trim().toUpperCase(),
       email: form.email.trim(),
       email_senha: form.email_senha.trim(),
       logo,
@@ -299,6 +305,28 @@ export function ClinicaForm({ mode, layout = "default", initial, saving, onSubmi
             className="legacy-input"
             value={form.endereco}
             onChange={(e) => set("endereco", upperPrompt(e.target.value))}
+          />
+        </label>
+
+        <label className="legacy-field">
+          <span className="legacy-field__label">Cidade</span>
+          <input
+            className="legacy-input"
+            value={form.cidade}
+            onChange={(e) => set("cidade", upperPrompt(e.target.value))}
+            placeholder="Sai nas receitas antes da assinatura"
+            maxLength={80}
+          />
+        </label>
+
+        <label className="legacy-field">
+          <span className="legacy-field__label">UF</span>
+          <input
+            className="legacy-input"
+            value={form.uf}
+            onChange={(e) => set("uf", e.target.value.replace(/[^A-Za-z]/g, "").toUpperCase().slice(0, 2))}
+            placeholder="SP"
+            maxLength={2}
           />
         </label>
 

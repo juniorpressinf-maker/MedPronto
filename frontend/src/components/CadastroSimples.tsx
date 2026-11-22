@@ -84,6 +84,11 @@ type Props = {
     conteudo: ReactNode;
   }[];
   rotuloAbaPrincipal?: string;
+  /**
+   * Parte extra do formulário que também é gravada pelo botão Salvar (ex.: impressão
+   * do médico). `dirty` acende o Salvar; `salvar` roda depois de gravar o registro.
+   */
+  extraPendente?: { dirty: boolean; salvar: () => Promise<void> } | null;
   /** `full` — card ocupa toda a área (edição com painéis extras); `fit` — card estreito; `wide` — card largo, formulário em mais colunas */
   formCardLayout?: "fit" | "full" | "wide";
   /** Colunas do grid do formulário (padrão 2) */
@@ -123,6 +128,7 @@ export function CadastroSimples({
   onAnexarExame,
   listRefreshTick = 0,
   formExtra,
+  extraPendente,
   abasExtras,
   rotuloAbaPrincipal = "Dados",
   formCardLayout = "fit",
@@ -184,8 +190,8 @@ export function CadastroSimples({
     snapshotForm({ form: f, ativo: a });
 
   const formDirty = useMemo(
-    () => mode === "form" && snapshotCadastro(form, ativo) !== baseline,
-    [mode, form, ativo, baseline],
+    () => mode === "form" && (snapshotCadastro(form, ativo) !== baseline || Boolean(extraPendente?.dirty)),
+    [mode, form, ativo, baseline, extraPendente?.dirty],
   );
 
   const tableColSpan =
@@ -376,6 +382,7 @@ export function CadastroSimples({
     try {
       if (editId) {
         await api.update(resource, editId, body);
+        if (extraPendente?.dirty) await extraPendente.salvar();
         setMode("list");
         setEditId(null);
       } else {
@@ -578,8 +585,8 @@ export function CadastroSimples({
               : formWideCard && formComExtra
                 ? "est-card est-card--page est-card--page--form-wide est-card--page--form-with-extra flex flex-col min-h-0 overflow-hidden flex-1 p-4"
               : formWideCard
-                ? "est-card est-card--page est-card--page--form-wide flex flex-col p-4"
-                : "est-card est-card--page est-card--page--form-fit flex flex-col overflow-hidden p-4"
+                ? "est-card est-card--page est-card--page--form-wide flex flex-col min-h-0 overflow-y-auto p-4"
+                : "est-card est-card--page est-card--page--form-fit flex flex-col min-h-0 overflow-y-auto p-4"
           }
         >
           {mode === "list" ? (
@@ -821,7 +828,8 @@ export function CadastroSimples({
             >
               {camposFormulario}
               {formComExtra && formExtra ? formExtra({ editId: editId!, form }) : null}
-              {acoesFormulario}
+              {/* Voltar/Salvar sempre visíveis, mesmo com formulário mais alto que a tela */}
+              <div className="cadastro-form__rodape cadastro-form__rodape--fixo">{acoesFormulario}</div>
             </form>
           )}
         </div>

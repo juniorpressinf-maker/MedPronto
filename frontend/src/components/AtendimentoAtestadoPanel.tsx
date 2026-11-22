@@ -58,6 +58,8 @@ type Props = {
   pacienteNome: string;
   somenteLeitura?: boolean;
   onConsultaEncerrada?: () => void;
+  /** Salvou: o atendimento atualiza a marcação do botão "Atestado". */
+  onMudou?: () => void;
   cidInicial?: { codigo: string; descricao: string };
   onVoltar: () => void;
 };
@@ -105,6 +107,7 @@ export function AtendimentoAtestadoPanel({
   pacienteNome,
   somenteLeitura = false,
   onConsultaEncerrada,
+  onMudou,
   cidInicial,
   onVoltar,
 }: Props) {
@@ -170,6 +173,7 @@ export function AtendimentoAtestadoPanel({
       await api.atestadoSave(prontuarioId, form);
       setBaseline(snapshotAtestado(form));
       setSaved(true);
+      onMudou?.();
       if (!silencioso) void msg.success("Atestado salvo");
       return true;
 
@@ -203,7 +207,8 @@ export function AtendimentoAtestadoPanel({
   const imprimir = async () => {
     try {
       // Com alteração não salva: salva antes (o PDF sai do que está gravado).
-      await api.atestadoPdf(
+      // Abre direto a janela da impressora (igual ao Clinicar).
+      await api.atestadoImprimir(
         prontuarioId,
         dirty
           ? async () => {

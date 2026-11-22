@@ -45,6 +45,8 @@ const ROTA_MODULO: Record<string, string | string[]> = {
   "/configuracoes/licenca": "licenca",
   "/configuracoes/whatsapp": "whatsapp",
   "/cobranca": "cobranca",
+  "/financeiro/contas-pagar": "contas_pagar",
+  "/financeiro/caixa": "caixa",
 };
 
 export function moduloParaRota(pathname: string): string | string[] | null {

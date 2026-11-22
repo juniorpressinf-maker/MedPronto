@@ -974,3 +974,181 @@
   font-size: 1.05rem;
   font-weight: 700;
 }
+
+/* ---------- Arraste próprio (ponteiro): card andando, prévia e motivo ---------- */
+.agn-card--arrastavel {
+  touch-action: none; /* no tablet/tela de toque o dedo arrasta o card, não a página */
+}
+.agn-card--negado {
+  outline: 3px solid #dc2626;
+  outline-offset: 2px;
+  z-index: 7;
+}
+/* Card que anda junto do mouse */
+.agn-fantasma {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.3rem 0.5rem;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.38), 0 0 0 2px rgba(255, 255, 255, 0.85);
+  opacity: 0.96;
+  will-change: transform;
+}
+.agn-fantasma__nome {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agn-fantasma__destino {
+  align-self: flex-start;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1e3a8a;
+  font-size: 0.72rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.agn-fantasma--invalido .agn-fantasma__destino {
+  color: #b91c1c;
+}
+/* Onde o card vai cair (tracejado na grade) */
+.agn-grade__previa {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  z-index: 5;
+  padding: 0.1rem 0.4rem;
+  border: 2px dashed var(--accent);
+  border-radius: 6px;
+  background: rgba(37, 99, 235, 0.14);
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+  pointer-events: none;
+  transition: top 90ms ease-out, height 90ms ease-out;
+}
+.agn-grade__previa--invalida {
+  border-color: #dc2626;
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
+}
+/* Balão "não dá para arrastar" junto do mouse */
+.agn-aviso-arraste {
+  position: fixed;
+  z-index: 1001;
+  max-width: 20rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 8px;
+  background: #1e293b;
+  color: #fff;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.35);
+  pointer-events: none;
+}
+/* Durante o arraste: cursor de "segurando" e sem selecionar texto */
+body.agn-arrastando,
+body.agn-arrastando * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+body.agn-arraste-negado,
+body.agn-arraste-negado * {
+  cursor: not-allowed !important;
+  user-select: none !important;
+}
+/* Sem o "pulinho" do hover enquanto arrasta (deixa o movimento liso) */
+.agn-grade--arrastando .agn-card:hover {
+  transform: none;
+}
+
+/* ---------- Pezinhos andando embaixo do card arrastado (igual ao Clinicar) ---------- */
+/* Pezinhos andando embaixo do card arrastado (sapatinho na cor do profissional).
+   Coxa gira no quadril, canela no joelho: as pernas ficam levemente dobradas. */
+.agn-pezinhos {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 2px 1.5px rgba(15, 23, 42, 0.25));
+}
+.agn-pezinhos--esquerda svg {
+  transform: scaleX(-1);
+}
+.agn-pezinhos__perna,
+.agn-pezinhos__canela {
+  transform-box: view-box;
+  transition: transform 0.18s ease-out;
+}
+.agn-pezinhos__sapato {
+  transform-box: fill-box;
+  transform-origin: 29% 32%; /* tornozelo */
+  transition: rotate 0.18s ease-out;
+}
+/* parado: em pé, joelhos levemente dobrados */
+.agn-pezinhos__perna--tras { transform: rotate(5deg); }
+.agn-pezinhos__perna--tras .agn-pezinhos__canela { transform: rotate(9deg); }
+.agn-pezinhos__perna--tras .agn-pezinhos__sapato { rotate: -14deg; }
+.agn-pezinhos__perna--frente { transform: rotate(-8deg); }
+.agn-pezinhos__perna--frente .agn-pezinhos__canela { transform: rotate(12deg); }
+.agn-pezinhos__perna--frente .agn-pezinhos__sapato { rotate: -4deg; }
+
+.agn-pezinhos--andando .agn-pezinhos__perna {
+  animation: agn-passo 0.56s ease-in-out infinite;
+}
+.agn-pezinhos--andando .agn-pezinhos__canela {
+  animation: agn-joelho 0.56s ease-in-out infinite;
+}
+.agn-pezinhos--andando .agn-pezinhos__sapato {
+  animation: agn-pisada 0.56s ease-in-out infinite;
+}
+.agn-pezinhos--andando .agn-pezinhos__perna--frente,
+.agn-pezinhos--andando .agn-pezinhos__perna--frente .agn-pezinhos__canela,
+.agn-pezinhos--andando .agn-pezinhos__perna--frente .agn-pezinhos__sapato {
+  animation-delay: -0.28s;
+}
+/* coxa: 0% atrás (impulso) → 50% à frente (pisada) → volta apoiada */
+@keyframes agn-passo {
+  0% { transform: rotate(24deg); }
+  25% { transform: rotate(0deg); }
+  50% { transform: rotate(-26deg); }
+  100% { transform: rotate(24deg); }
+}
+/* joelho: dobra mais no ar (25%), quase estica ao pisar (50%), leve dobra no apoio */
+@keyframes agn-joelho {
+  0% { transform: rotate(18deg); }
+  25% { transform: rotate(38deg); }
+  50% { transform: rotate(5deg); }
+  75% { transform: rotate(11deg); }
+  100% { transform: rotate(18deg); }
+}
+/* pé: bico desce no impulso, nivelado no ar, sobe no calcanhar, assenta */
+@keyframes agn-pisada {
+  0% { rotate: -12deg; }
+  25% { rotate: -30deg; }
+  50% { rotate: 9deg; }
+  75% { rotate: -11deg; }
+  100% { rotate: -12deg; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agn-pezinhos--andando .agn-pezinhos__perna,
+  .agn-pezinhos--andando .agn-pezinhos__canela,
+  .agn-pezinhos--andando .agn-pezinhos__sapato {
+    animation: none;
+  }
+}
+/* o card fantasma fica "em pé" sobre os pezinhos (altura fixa, sem inclinar) */
+.agn-fantasma {
+  overflow: hidden;
+  justify-content: center;
+}

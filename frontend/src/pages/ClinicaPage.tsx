@@ -15,6 +15,8 @@ function rowToForm(r: {
   cnpj_cpf: string | null;
   telefone: string | null;
   endereco: string | null;
+  cidade?: string | null;
+  uf?: string | null;
   email: string | null;
   logo: string | null;
 }): ClinicaFormData {
@@ -23,6 +25,8 @@ function rowToForm(r: {
     cnpj_cpf: String(r.cnpj_cpf ?? "").trim(),
     telefone: String(r.telefone ?? "").trim(),
     endereco: String(r.endereco ?? "").trim(),
+    cidade: String(r.cidade ?? "").trim(),
+    uf: String(r.uf ?? "").trim(),
     email: String(r.email ?? "").trim(),
     email_senha: "",
     logo: String(r.logo ?? "").trim(),
@@ -68,6 +72,8 @@ export function ClinicaPage() {
         logo: data.logo,
         telefone: data.telefone.trim() || undefined,
         endereco: data.endereco.trim() || undefined,
+        cidade: data.cidade.trim(),
+        uf: data.uf.trim(),
       });
       await refreshBranding();
       const row = await api.clinicaGet();

@@ -14,6 +14,8 @@ export const PERMISSOES_PADRAO: Record<Perfil, string[]> = {
     "cobranca",
     "cobranca_relatorios",
     "cobranca_config",
+    "contas_pagar",
+    "caixa",
     "chat_interno",
   ],
   medico: [
@@ -54,6 +56,8 @@ export const PERMISSOES_PADRAO: Record<Perfil, string[]> = {
     "cobranca_solicitar",
     "cobranca_config",
     "cobranca_relatorios",
+    "contas_pagar",
+    "caixa",
     "chat_interno",
   ],
 };

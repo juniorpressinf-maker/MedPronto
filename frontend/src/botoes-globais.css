@@ -1,0 +1,63 @@
+/* =====================================================================
+   Botões — visual moderno em TODO o sistema (mesmo conceito do
+   Atendimento / Sala de espera).
+   Só aparência: NÃO muda tamanho (altura, fonte, padding continuam os de
+   index.css / medpronto-ux.css) nem a cor de cada tipo de botão.
+   Carregado por último em main.tsx para valer em todas as telas.
+   ===================================================================== */
+
+/* Formato arredondado + transições suaves (todos os botões) */
+.btn {
+  border-radius: 999px;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.btn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* Azul (primário e secundário — no sistema os dois são azuis) */
+.btn-primary:not(:disabled),
+.btn-secondary:not(:disabled) {
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 60%, #3b82f6 100%);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.55);
+}
+.btn-primary:hover:not(:disabled),
+.btn-secondary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 60%, #2563eb 100%);
+  box-shadow: 0 8px 18px -6px rgba(37, 99, 235, 0.65);
+}
+
+/* Verde (conta paga) */
+.btn-cobranca-paga:not(:disabled) {
+  background: linear-gradient(135deg, #166534 0%, #15803d 60%, #16a34a 100%);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 4px 12px -4px rgba(22, 163, 74, 0.55);
+}
+.btn-cobranca-paga:hover:not(:disabled) {
+  background: linear-gradient(135deg, #14532d 0%, #166534 60%, #15803d 100%);
+  box-shadow: 0 8px 18px -6px rgba(22, 163, 74, 0.6);
+}
+
+/* Desabilitado: continua branco com borda (só ganha o formato arredondado) */
+.btn:disabled,
+.btn-primary:disabled,
+.btn-secondary:disabled {
+  border-radius: 999px;
+  box-shadow: none;
+  transform: none;
+}

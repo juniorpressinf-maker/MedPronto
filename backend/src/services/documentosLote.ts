@@ -35,6 +35,8 @@ function ctxFromRow(row: NonNullable<ReturnType<typeof getDocumentoContext>>) {
     clinica_nome: row.clinica_nome ?? "Consultório",
     clinica_telefone: row.clinica_telefone,
     clinica_endereco: row.clinica_endereco,
+    clinica_cidade: row.clinica_cidade,
+    clinica_uf: row.clinica_uf,
     clinica_logo: row.clinica_logo,
     medico_nome: row.medico_nome,
     medico_crm: row.medico_crm,
@@ -156,13 +158,14 @@ async function pdfPedidoExame(prontuarioId: number): Promise<Buffer | null> {
   const pedido = getDb()
     .prepare(`SELECT * FROM pedidos_exame WHERE prontuario_id = ? ORDER BY id DESC LIMIT 1`)
     .get(prontuarioId) as
-    | { exames_solicitados: string; observacoes: string | null }
+    | { exames_solicitados: string; observacoes: string | null; cid_codigo: string | null; cid_descricao: string | null }
     | undefined;
   if (!pedido?.exames_solicitados?.trim()) return null;
   return gerarPdfPedidoExame(
     ctxFromRow(row),
     pedido.exames_solicitados,
     pedido.observacoes,
+    { codigo: pedido.cid_codigo, descricao: pedido.cid_descricao },
   );
 }
 

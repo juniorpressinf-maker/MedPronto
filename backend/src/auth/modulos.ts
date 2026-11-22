@@ -27,6 +27,8 @@ export const MODULOS = [
   "cobranca_solicitar",
   "cobranca_config",
   "cobranca_relatorios",
+  "contas_pagar",
+  "caixa",
   "chat_interno",
 ] as const;
 
@@ -57,6 +59,8 @@ export const MODULO_LABELS: Record<Modulo, string> = {
   cobranca_solicitar: "Cobrança (solicitar procedimento)",
   cobranca_config: "Cobrança (configuração)",
   cobranca_relatorios: "Cobrança (relatórios)",
+  contas_pagar: "Contas a pagar",
+  caixa: "Caixa (entradas e saídas)",
   chat_interno: "Chat interno",
 };
 
@@ -73,6 +77,8 @@ export const PERMISSOES_PADRAO: Record<Perfil, Modulo[]> = {
     "cobranca",
     "cobranca_relatorios",
     "cobranca_config",
+    "contas_pagar",
+    "caixa",
     "chat_interno",
   ],
   medico: [

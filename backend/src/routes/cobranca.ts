@@ -290,7 +290,7 @@ const precosBody = z.object({
     z.object({
       procedimento_id: z.number().int().positive(),
       convenio_id: z.number().int().positive(),
-      valor_centavos: z.number().int().min(0),
+      valor_centavos: z.number().int().min(0).nullable(),
     }),
   ),
 });

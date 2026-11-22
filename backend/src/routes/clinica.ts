@@ -39,6 +39,8 @@ const createSchema = z.object({
   cnpj_cpf: z.string().max(18).optional(),
   telefone: z.string().max(30).optional(),
   endereco: z.string().max(200).optional(),
+  cidade: z.string().max(80).optional(),
+  uf: z.string().max(2).optional(),
   email: emailSchema,
   email_senha: z.string().min(1, "Informe a senha do e-mail cadastrado."),
   logo: logoInputSchema.optional(),
@@ -51,6 +53,8 @@ const updateSchema = z
     email_senha: z.string().optional(),
     telefone: z.string().max(30).optional(),
     endereco: z.string().max(200).optional(),
+    cidade: z.string().max(80).optional(),
+    uf: z.string().max(2).optional(),
   })
   .refine(
     (b) =>
@@ -58,7 +62,9 @@ const updateSchema = z
       b.email !== undefined ||
       b.email_senha !== undefined ||
       b.telefone !== undefined ||
-      b.endereco !== undefined,
+      b.endereco !== undefined ||
+      b.cidade !== undefined ||
+      b.uf !== undefined,
     { message: "Nada para atualizar" },
   );
 
@@ -67,6 +73,8 @@ function mapClinicaRow(row: {
   cnpj_cpf: string | null;
   telefone: string | null;
   endereco: string | null;
+  cidade?: string | null;
+  uf?: string | null;
   email: string | null;
   logo_path: string | null;
 }) {
@@ -75,6 +83,8 @@ function mapClinicaRow(row: {
     cnpj_cpf: row.cnpj_cpf?.trim() || null,
     telefone: row.telefone?.trim() || null,
     endereco: row.endereco?.trim() || null,
+    cidade: row.cidade?.trim() || null,
+    uf: row.uf?.trim().toUpperCase() || null,
     email: row.email?.trim() || null,
     logo: row.logo_path?.trim() || null,
   };
@@ -187,7 +197,7 @@ clinicaRouter.get(
   asyncHandler(async (_req, res) => {
     const row = getDb()
       .prepare(
-        "SELECT nome, cnpj_cpf, telefone, endereco, email, logo_path FROM clinica WHERE id = 1",
+        "SELECT nome, cnpj_cpf, telefone, endereco, cidade, uf, email, logo_path FROM clinica WHERE id = 1",
       )
       .get() as
       | {
@@ -195,6 +205,8 @@ clinicaRouter.get(
           cnpj_cpf: string | null;
           telefone: string | null;
           endereco: string | null;
+          cidade: string | null;
+          uf: string | null;
           email: string | null;
           logo_path: string | null;
         }
@@ -228,14 +240,16 @@ clinicaRouter.post(
 
     getDb()
       .prepare(
-        `INSERT INTO clinica (id, nome, cnpj_cpf, telefone, endereco, email, logo_path, email_senha_hash, email_senha_salt)
-         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO clinica (id, nome, cnpj_cpf, telefone, endereco, cidade, uf, email, logo_path, email_senha_hash, email_senha_salt)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         normNome(body.nome),
         body.cnpj_cpf?.trim() || null,
         body.telefone?.trim() || null,
         body.endereco?.trim() || null,
+        body.cidade?.trim().toUpperCase() || null,
+        body.uf?.trim().toUpperCase() || null,
         emailNorm,
         logoStored,
         hash,
@@ -248,13 +262,15 @@ clinicaRouter.post(
 
     const created = getDb()
       .prepare(
-        "SELECT nome, cnpj_cpf, telefone, endereco, email, logo_path FROM clinica WHERE id = 1",
+        "SELECT nome, cnpj_cpf, telefone, endereco, cidade, uf, email, logo_path FROM clinica WHERE id = 1",
       )
       .get() as {
       nome: string;
       cnpj_cpf: string | null;
       telefone: string | null;
       endereco: string | null;
+      cidade: string | null;
+      uf: string | null;
       email: string | null;
       logo_path: string | null;
     };
@@ -300,6 +316,14 @@ clinicaRouter.put(
       sets.push("endereco = ?");
       values.push(body.endereco.trim() || null);
     }
+    if (body.cidade !== undefined) {
+      sets.push("cidade = ?");
+      values.push(body.cidade.trim().toUpperCase() || null);
+    }
+    if (body.uf !== undefined) {
+      sets.push("uf = ?");
+      values.push(body.uf.trim().toUpperCase() || null);
+    }
     if (!sets.length) {
       res.status(400).json({ error: "Nada para atualizar" });
       return;
@@ -312,13 +336,15 @@ clinicaRouter.put(
 
     const updated = getDb()
       .prepare(
-        "SELECT nome, cnpj_cpf, telefone, endereco, email, logo_path FROM clinica WHERE id = 1",
+        "SELECT nome, cnpj_cpf, telefone, endereco, cidade, uf, email, logo_path FROM clinica WHERE id = 1",
       )
       .get() as {
       nome: string;
       cnpj_cpf: string | null;
       telefone: string | null;
       endereco: string | null;
+      cidade: string | null;
+      uf: string | null;
       email: string | null;
       logo_path: string | null;
     };

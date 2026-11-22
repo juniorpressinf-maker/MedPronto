@@ -83,6 +83,54 @@ export class PdfCancelado extends Error {}
  * o navegador trata como pop-up e bloqueia sem avisar (receita "não abre para impressão").
  * `antes`: roda depois de abrir a janela e antes de gerar o PDF (ex.: salvar o documento).
  */
+/** Moldura escondida da última impressão (trocada a cada nova impressão). */
+let molduraImpressao: HTMLIFrameElement | null = null;
+
+/**
+ * Gera o PDF e já abre a janela da impressora (igual ao Clinicar), sem abrir aba.
+ * Se o navegador não deixar imprimir pela moldura, abre o PDF numa aba como antes.
+ */
+async function printPdf(path: string, antes?: () => Promise<void>): Promise<void> {
+  if (antes) await antes();
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { credentials: "include" });
+  } catch {
+    throw new ApiError(
+      "A API ainda não respondeu. Aguarde o reinício terminar ou abra o atalho do MedPronto de novo.",
+      0,
+    );
+  }
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new ApiError(data.error ?? res.statusText, res.status);
+  }
+  const blob = new Blob([await res.blob()], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+
+  molduraImpressao?.remove();
+  const frame = document.createElement("iframe");
+  frame.setAttribute("aria-hidden", "true");
+  // Precisa ter tamanho (com display:none o leitor de PDF não carrega e não imprime).
+  frame.style.cssText =
+    "position:fixed;right:0;bottom:0;width:2px;height:2px;border:0;opacity:0;pointer-events:none;";
+  frame.src = url;
+  molduraImpressao = frame;
+  frame.onload = () => {
+    window.setTimeout(() => {
+      try {
+        frame.contentWindow?.focus();
+        frame.contentWindow?.print();
+      } catch {
+        window.open(url, "_blank");
+      }
+    }, 400);
+  };
+  document.body.appendChild(frame);
+  // limpa depois (a janela da impressora já terá sido usada)
+  window.setTimeout(() => URL.revokeObjectURL(url), 10 * 60_000);
+}
+
 async function openPdf(path: string, antes?: () => Promise<void>): Promise<void> {
   const janela = window.open("", "_blank");
   try {
@@ -150,6 +198,8 @@ export type ClinicaRow = {
   cnpj_cpf: string | null;
   telefone: string | null;
   endereco: string | null;
+  cidade?: string | null;
+  uf?: string | null;
   email: string | null;
   logo: string | null;
 };
@@ -428,7 +478,7 @@ export const api = {
     precos: {
       procedimento_id: number;
       convenio_id: number;
-      valor_centavos: number;
+      valor_centavos: number | null;
     }[],
   ) =>
     request<CobrancaMatrizPrecos>("/cobranca/precos", {
@@ -646,6 +696,8 @@ export const api = {
     cnpj_cpf?: string;
     telefone?: string;
     endereco?: string;
+    cidade?: string;
+    uf?: string;
     email: string;
     email_senha: string;
     logo?: string;
@@ -661,6 +713,8 @@ export const api = {
     logo?: string;
     telefone?: string;
     endereco?: string;
+    cidade?: string;
+    uf?: string;
   }) =>
     request<ClinicaRow>("/clinica", {
       method: "PUT",
@@ -1376,6 +1430,10 @@ export const api = {
   receitaPdf: (prontuarioId: number, antes?: () => Promise<void>) =>
     openPdf(`/prontuarios/${prontuarioId}/receita/pdf`, antes),
 
+  /** Imprimir no atendimento: abre direto a janela da impressora. */
+  receitaImprimir: (prontuarioId: number, antes?: () => Promise<void>) =>
+    printPdf(`/prontuarios/${prontuarioId}/receita/pdf`, antes),
+
   atestadoGet: (prontuarioId: number) =>
     request<{ atestado: Atestado | null }>(`/prontuarios/${prontuarioId}/atestado`),
 
@@ -1387,6 +1445,9 @@ export const api = {
 
   atestadoPdf: (prontuarioId: number, antes?: () => Promise<void>) =>
     openPdf(`/prontuarios/${prontuarioId}/atestado/pdf`, antes),
+
+  atestadoImprimir: (prontuarioId: number, antes?: () => Promise<void>) =>
+    printPdf(`/prontuarios/${prontuarioId}/atestado/pdf`, antes),
 
   pedidoExameGet: (prontuarioId: number) =>
     request<{ pedido: PedidoExame | null }>(
@@ -1401,6 +1462,9 @@ export const api = {
 
   pedidoExamePdf: (prontuarioId: number, antes?: () => Promise<void>) =>
     openPdf(`/prontuarios/${prontuarioId}/pedido-exame/pdf`, antes),
+
+  pedidoExameImprimir: (prontuarioId: number, antes?: () => Promise<void>) =>
+    printPdf(`/prontuarios/${prontuarioId}/pedido-exame/pdf`, antes),
 
   consultaPdf: (prontuarioId: number) =>
     openPdf(`/prontuarios/${prontuarioId}/consulta/pdf`),
@@ -1825,6 +1889,8 @@ export type PedidoExame = {
   id?: number;
   exames_solicitados: string;
   observacoes?: string | null;
+  cid_codigo?: string | null;
+  cid_descricao?: string | null;
 };
 
 

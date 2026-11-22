@@ -1,8 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
-import { AtendimentoCardTitulo } from "./AtendimentoCardTitulo";
-
-import { FormActions } from "./FormActions";
+import { DocAcoes } from "./DocAcoes";
 import { NomeAutocomplete } from "./NomeAutocomplete";
 
 import { ApiError, PdfCancelado, api, type ReceitaItem, type VariacaoPrescricao } from "../lib/api";
@@ -33,13 +31,20 @@ const ITEM_VAZIO = (): ReceitaItem => ({
 
 
 
+/** Linha sem nada digitado (a do fim, sempre presente para digitar). */
+const linhaVazia = (i: ReceitaItem) =>
+  !i.medicamento.trim() && !i.dosagem && !i.via && !i.posologia && !i.quantidade && i.duracao_dias == null;
+
+/** Sugestões do campo Via (igual ao Clinicar). */
+const VIAS = ["ORAL", "SUBLINGUAL", "TÓPICA", "INALATÓRIA", "NASAL", "OFTÁLMICA", "OTOLÓGICA", "RETAL", "VAGINAL", "INTRAMUSCULAR", "SUBCUTÂNEA", "ENDOVENOSA"];
+
 function snapshotReceita(observacoes: string, itens: ReceitaItem[]) {
 
   return snapshotForm({
 
     observacoes,
 
-    itens: itens.map((i) => ({
+    itens: itens.filter((i) => !linhaVazia(i)).map((i) => ({
 
       medicamento: i.medicamento,
 
@@ -90,13 +95,16 @@ type Props = {
 
   onConsultaEncerrada?: () => void;
 
+  /** Salvou: o atendimento atualiza a marcação do botão "Receita". */
+  onMudou?: () => void;
+
   onVoltar: () => void;
 
 };
 
 
 
-export function AtendimentoReceitaPanel({ prontuarioId, pacienteNome, somenteLeitura = false, onConsultaEncerrada, onVoltar }: Props) {
+export function AtendimentoReceitaPanel({ prontuarioId, pacienteNome, somenteLeitura = false, onConsultaEncerrada, onMudou, onVoltar }: Props) {
 
   const msg = useMessageBox();
 
@@ -108,18 +116,19 @@ export function AtendimentoReceitaPanel({ prontuarioId, pacienteNome, somenteLei
   /** Memória de prescrição por linha (aparece ao escolher o medicamento na lista). */
   const [memoria, setMemoria] = useState<Record<number, { nome: string; variacoes: VariacaoPrescricao[] }>>({});
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [, setSaved] = useState(false);
   const painelRef = useRef<HTMLDivElement>(null);
-  /** "+ Medicamento": cursor vai para o nome da linha nova. */
-  const focoNovaLinha = useRef<number | null>(null);
-  useEffect(() => {
-    const idx = focoNovaLinha.current;
-    if (idx == null) return;
-    focoNovaLinha.current = null;
-    requestAnimationFrame(() =>
-      painelRef.current?.querySelectorAll<HTMLInputElement>(".receita-panel__col-medicamento input")[idx]?.focus(),
-    );
-  }, [itens.length]);
+  /**
+   * Igual ao pedido de exames: a linha nova só abre quando o medicamento da última
+   * linha fica pronto (escolhido na lista ou ao sair do campo) — não a cada letra.
+   */
+  const garantirLinhaNova = () => {
+    if (somenteLeitura) return;
+    setItens((prev) => (prev[prev.length - 1]?.medicamento.trim() ? [...prev, ITEM_VAZIO()] : prev));
+  };
+  /** Linhas carregadas + uma em branco no fim para o próximo medicamento. */
+  const comLinhaFinal = (rows: ReceitaItem[]) =>
+    rows.length ? (somenteLeitura ? rows : [...rows, ITEM_VAZIO()]) : [ITEM_VAZIO()];
 
   useEffect(() => {
     let active = true;
@@ -134,7 +143,7 @@ export function AtendimentoReceitaPanel({ prontuarioId, pacienteNome, somenteLei
         const r = await api.receitaGet(prontuarioId);
         if (!active) return;
         const obs = r.receita?.observacoes ?? "";
-        const rows = r.itens.length ? r.itens : [ITEM_VAZIO()];
+        const rows = comLinhaFinal(r.itens);
         setObservacoes(obs);
         setItens(rows);
         setBaseline(snapshotReceita(obs, rows));
@@ -184,13 +193,14 @@ export function AtendimentoReceitaPanel({ prontuarioId, pacienteNome, somenteLei
         // Automático: não recarrega (não mexe no que o médico está digitando).
         setBaseline(snapshotReceita(observacoes, itens));
         setSaved(true);
+        onMudou?.();
         return true;
       }
 
-      if (!silencioso) void msg.success("Receita salva");
+      onMudou?.();
       const r = await api.receitaGet(prontuarioId);
       const obs = r.receita?.observacoes ?? "";
-      const rows = r.itens.length ? r.itens : [ITEM_VAZIO()];
+      const rows = comLinhaFinal(r.itens);
       setObservacoes(obs);
       setItens(rows);
       setBaseline(snapshotReceita(obs, rows));
@@ -227,7 +237,8 @@ export function AtendimentoReceitaPanel({ prontuarioId, pacienteNome, somenteLei
   const imprimir = async () => {
     try {
       // Com alteração não salva: salva antes (o PDF sai do que está gravado).
-      await api.receitaPdf(
+      // Abre direto a janela da impressora (igual ao Clinicar).
+      await api.receitaImprimir(
         prontuarioId,
         dirty
           ? async () => {
@@ -287,12 +298,14 @@ export function AtendimentoReceitaPanel({ prontuarioId, pacienteNome, somenteLei
   /** Escolheu o medicamento na lista: grava o nome e busca a memória do médico. */
   const escolherMedicamento = async (idx: number, nome: string) => {
     setItem(idx, { medicamento: nome });
+    garantirLinhaNova();
     await buscarMemoria(idx, upperPrompt(nome));
   };
 
   /** Saiu do campo após digitar o nome (sem clicar na lista): busca a memória se a linha está vazia. */
   const sairMedicamento = (idx: number, row: ReceitaItem, valor: string) => {
     const nome = valor.trim();
+    if (nome) garantirLinhaNova();
     if (nome.length < 2 || memoria[idx]?.nome === nome) return;
     const vazia = !row.dosagem && !row.via && !row.posologia && !row.quantidade && row.duracao_dias == null;
     if (vazia) void buscarMemoria(idx, nome);
@@ -363,208 +376,151 @@ export function AtendimentoReceitaPanel({ prontuarioId, pacienteNome, somenteLei
   };
 
   return (
-    <div className="prontuario-secao receita-panel" ref={painelRef}>
-      <AtendimentoCardTitulo titulo="Receituário" pacienteNome={pacienteNome} />
-      <div className="receita-panel__tabela dup-table-wrap panel panel-table">
-        <table className="data-table receita-panel__table">
-
+    <div className="doc-painel receita receita-panel" ref={painelRef}>
+      <header className="doc-painel__topo">
+        <h2>Receituário</h2>
+        <span>{pacienteNome}</span>
+      </header>
+      {somenteLeitura ? <p className="doc-aviso">Consulta finalizada: receita só para leitura e impressão.</p> : null}
+      <datalist id={`receita-vias-${prontuarioId}`}>
+        {VIAS.map((v) => (
+          <option key={v} value={v} />
+        ))}
+      </datalist>
+      <div className="dup-table-wrap receita__tabela receita-panel__tabela">
+        <table className="data-table receita__table">
           <thead>
-
             <tr>
-
-              <th>Medicamento</th>
-
-              <th>Dose</th>
-
-              <th>Via</th>
-
-              <th>Posologia</th>
-
-              <th>Qtd</th>
-
-              <th>Dias</th>
-              {!somenteLeitura ? <th /> : null}
+              <th className="th-sem-ord">Medicamento</th>
+              <th className="th-sem-ord">Dose</th>
+              <th className="th-sem-ord">Via</th>
+              <th className="th-sem-ord">Posologia</th>
+              <th className="th-sem-ord">Qtd</th>
+              <th className="th-sem-ord">Dias</th>
+              {!somenteLeitura ? <th className="th-sem-ord" /> : null}
             </tr>
           </thead>
-
           <tbody>
-
             {itens.map((row, idx) => (
               <Fragment key={idx}>
-              <tr>
-
-                <td className="receita-panel__col-medicamento">
-                  <NomeAutocomplete
-                    value={row.medicamento}
-                    readOnly={somenteLeitura}
-                    placeholder="Digite o medicamento"
-                    buscar={(q) => api.receitaSugestoes(prontuarioId, q).then((r) => r.itens)}
-                    onChange={(v) => setItem(idx, { medicamento: v })}
-                    onSelecionar={(nome) => void escolherMedicamento(idx, nome)}
-                    onSair={(v) => sairMedicamento(idx, row, v)}
-                    focoInicial={idx === 0}
-                  />
-
-                </td>
-
-                <td>
-
-                  <input
-                    className="legacy-input w-full"
-                    value={row.dosagem ?? ""}
-                    readOnly={somenteLeitura}
-                    onChange={(e) => setItem(idx, { dosagem: e.target.value })}
-                  />
-
-                </td>
-
-                <td>
-
-                  <input
-                    className="legacy-input w-full"
-                    value={row.via ?? ""}
-                    readOnly={somenteLeitura}
-                    onChange={(e) => setItem(idx, { via: e.target.value })}
-                  />
-
-                </td>
-
-                <td className="receita-panel__col-posologia">
-                  <input
-                    className="legacy-input w-full"
-                    value={row.posologia ?? ""}
-                    readOnly={somenteLeitura}
-                    onChange={(e) => setItem(idx, { posologia: e.target.value })}
-                  />
-
-                </td>
-
-                <td>
-
-                  <input
-                    className="legacy-input w-full"
-                    value={row.quantidade ?? ""}
-                    readOnly={somenteLeitura}
-                    onChange={(e) => setItem(idx, { quantidade: e.target.value })}
-                  />
-                </td>
-                <td>
-                  <input
-                    type="number"
-                    min={1}
-                    className="legacy-input w-full min-w-0"
-                    value={row.duracao_dias ?? ""}
-                    readOnly={somenteLeitura}
-                    onChange={(e) =>
-                      setItem(idx, {
-                        duracao_dias: e.target.value ? Number(e.target.value) : null,
-                      })
-                    }
-                  />
-                </td>
-                {!somenteLeitura ? (
-                  <td>
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      onClick={() => {
-                        setItens((prev) => prev.filter((_, i) => i !== idx));
-                        setMemoria({});
-                      }}
-                      disabled={itens.length <= 1}
-                    >
-                      ×
-                    </button>
+                <tr>
+                  <td className="receita__col-medicamento">
+                    <NomeAutocomplete
+                      value={row.medicamento}
+                      readOnly={somenteLeitura}
+                      placeholder="Digite o medicamento"
+                      buscar={(q) => api.receitaSugestoes(prontuarioId, q).then((r) => r.itens)}
+                      onChange={(v) => setItem(idx, { medicamento: v })}
+                      onSelecionar={(nome) => void escolherMedicamento(idx, nome)}
+                      onSair={(v) => sairMedicamento(idx, row, v)}
+                      focoInicial={idx === 0}
+                    />
                   </td>
-                ) : null}
-
-              </tr>
-              {!somenteLeitura && memoria[idx]?.variacoes.length ? (
-                <tr className="receita-panel__memoria">
-                  <td colSpan={7}>
-                    <span className="receita-panel__memoria-titulo">Como você costuma receitar:</span>
-                    {memoria[idx].variacoes.map((v) => (
-                      <span key={v.assinatura} className="receita-panel__memoria-chip">
+                  <td>
+                    <input
+                      className="legacy-input w-full"
+                      value={row.dosagem ?? ""}
+                      readOnly={somenteLeitura}
+                      placeholder="1 CP"
+                      onChange={(e) => setItem(idx, { dosagem: e.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className="legacy-input w-full"
+                      list={`receita-vias-${prontuarioId}`}
+                      value={row.via ?? ""}
+                      readOnly={somenteLeitura}
+                      onChange={(e) => setItem(idx, { via: e.target.value })}
+                    />
+                  </td>
+                  <td className="receita__col-posologia">
+                    <input
+                      className="legacy-input w-full"
+                      value={row.posologia ?? ""}
+                      readOnly={somenteLeitura}
+                      placeholder="DE 8/8 HORAS"
+                      onChange={(e) => setItem(idx, { posologia: e.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className="legacy-input w-full"
+                      value={row.quantidade ?? ""}
+                      readOnly={somenteLeitura}
+                      placeholder="1 CX"
+                      onChange={(e) => setItem(idx, { quantidade: e.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      min={1}
+                      className="legacy-input w-full min-w-0"
+                      value={row.duracao_dias ?? ""}
+                      readOnly={somenteLeitura}
+                      onChange={(e) => setItem(idx, { duracao_dias: e.target.value ? Number(e.target.value) : null })}
+                    />
+                  </td>
+                  {!somenteLeitura ? (
+                    <td>
+                      {idx === itens.length - 1 && linhaVazia(row) ? null : (
                         <button
                           type="button"
-                          title="Usar esta forma"
-                          onClick={() => aplicarVariacao(idx, v, true)}
-                        >
-                          {resumoVariacao(v)}
-                          {v.usos > 1 ? <small> ({v.usos}×)</small> : null}
-                        </button>
-                        <button
-                          type="button"
-                          className="receita-panel__memoria-ocultar"
-                          title="Não sugerir mais esta forma"
-                          onClick={() => void ocultarVariacao(idx, v)}
+                          className="btn btn-sm"
+                          title="Remover"
+                          onClick={() => {
+                            setItens((prev) => prev.filter((_, i) => i !== idx));
+                            setMemoria({});
+                          }}
                         >
                           ×
                         </button>
-                      </span>
-                    ))}
-                  </td>
+                      )}
+                    </td>
+                  ) : null}
                 </tr>
-              ) : null}
+                {!somenteLeitura && memoria[idx]?.variacoes.length ? (
+                  <tr className="receita__memoria">
+                    <td colSpan={7}>
+                      <span className="receita__memoria-titulo">Como você costuma receitar:</span>
+                      {memoria[idx].variacoes.map((v) => (
+                        <span key={v.assinatura} className="receita__memoria-chip">
+                          <button type="button" title="Usar esta forma" onClick={() => aplicarVariacao(idx, v, true)}>
+                            {resumoVariacao(v)}
+                            {v.usos > 1 ? <small> ({v.usos}×)</small> : null}
+                          </button>
+                          <button
+                            type="button"
+                            className="receita__memoria-ocultar"
+                            title="Não sugerir mais esta forma"
+                            onClick={() => void ocultarVariacao(idx, v)}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </td>
+                  </tr>
+                ) : null}
               </Fragment>
             ))}
-
           </tbody>
-
         </table>
-
       </div>
-      {!somenteLeitura ? (
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm receita-panel__add"
-          onClick={() => {
-            focoNovaLinha.current = itens.length;
-            setItens((prev) => [...prev, ITEM_VAZIO()]);
-          }}
-        >
-          + Medicamento
-        </button>
-      ) : null}
-
-      <div className="receita-panel__obs">
-        <label className="receita-panel__obs-titulo" htmlFor={`receita-obs-${prontuarioId}`}>
-          Observações da receita
-          <span>(saem no fim da receita impressa)</span>
-        </label>
-        <textarea
-          id={`receita-obs-${prontuarioId}`}
-          className="prontuario-secao__area w-full"
-          rows={3}
-          placeholder="Ex.: tomar após as refeições; retornar em 15 dias…"
-          value={observacoes}
-          readOnly={somenteLeitura}
-          onChange={(e) => setObservacoes(upperPrompt(e.target.value))}
-        />
-      </div>
-      <FormActions
-        saving={saving}
-        dirty={dirty}
-        saved={saved}
-        saveLabel="Salvar receita"
-        onSave={() => void salvar()}
-        indicador={indicadorSalvo}
-        onBack={onVoltar}
-        backLabel="Voltar ao prontuário"
-        somenteLeitura={somenteLeitura}
-      >
-        <button type="button" className="btn btn-primary" onClick={() => void imprimir()}>
-
-          Imprimir PDF
-
-        </button>
-
-      </FormActions>
-
+      <label className="doc-rotulo" htmlFor={`receita-obs-${prontuarioId}`}>
+        Observações da receita <small>(saem no fim da receita impressa)</small>
+      </label>
+      <textarea
+        id={`receita-obs-${prontuarioId}`}
+        className="doc-area"
+        rows={3}
+        placeholder="Ex.: tomar após as refeições; retornar em 15 dias…"
+        value={observacoes}
+        readOnly={somenteLeitura}
+        onChange={(e) => setObservacoes(upperPrompt(e.target.value))}
+      />
+      <DocAcoes indicador={indicadorSalvo} saving={saving} onVoltar={onVoltar} onImprimir={() => void imprimir()} />
     </div>
-
   );
-
 }
-
-

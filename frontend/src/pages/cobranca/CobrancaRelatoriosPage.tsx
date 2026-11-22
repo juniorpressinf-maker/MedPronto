@@ -282,7 +282,7 @@ export function CobrancaRelatoriosPage() {
   const [ate, setAte] = useState(hojeIso);
 
   return (
-    <div className="est-card est-card--page flex flex-col min-h-0 w-full max-w-5xl">
+    <div className="est-card est-card--page cobranca-dia-card flex flex-col min-h-0 w-full">
       <div className="px-4 pt-4 border-b border-[var(--border)]">
         <h3 className="m-0 text-base font-semibold mb-3">Relatórios</h3>
         <nav className="flex flex-wrap gap-1 pb-0">

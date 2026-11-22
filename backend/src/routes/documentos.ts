@@ -60,6 +60,8 @@ const atestadoBodySchema = z.object({
 const pedidoBodySchema = z.object({
   exames_solicitados: z.string().min(1).max(8000),
   observacoes: z.string().max(2000).optional().nullable(),
+  cid_codigo: z.string().max(10).optional().nullable(),
+  cid_descricao: z.string().max(500).optional().nullable(),
 });
 
 function ctxFromRow(row: NonNullable<ReturnType<typeof getDocumentoContext>>) {
@@ -67,6 +69,8 @@ function ctxFromRow(row: NonNullable<ReturnType<typeof getDocumentoContext>>) {
     clinica_nome: row.clinica_nome ?? "Consultório",
     clinica_telefone: row.clinica_telefone,
     clinica_endereco: row.clinica_endereco,
+    clinica_cidade: row.clinica_cidade,
+    clinica_uf: row.clinica_uf,
     clinica_logo: row.clinica_logo,
     medico_nome: row.medico_nome,
     medico_crm: row.medico_crm,
@@ -374,18 +378,26 @@ documentosRouter.put(
     db.transaction(() => {
       if (existing) {
         db.prepare(
-          `UPDATE pedidos_exame SET exames_solicitados = ?, observacoes = ? WHERE id = ?`,
-        ).run(body.exames_solicitados, body.observacoes ?? null, existing.id);
+          `UPDATE pedidos_exame SET exames_solicitados = ?, observacoes = ?, cid_codigo = ?, cid_descricao = ? WHERE id = ?`,
+        ).run(
+          body.exames_solicitados,
+          body.observacoes ?? null,
+          body.cid_codigo?.trim() || null,
+          body.cid_descricao?.trim() || null,
+          existing.id,
+        );
       } else {
         db.prepare(
-          `INSERT INTO pedidos_exame (prontuario_id, paciente_id, medico_id, exames_solicitados, observacoes)
-           VALUES (?, ?, ?, ?, ?)`,
+          `INSERT INTO pedidos_exame (prontuario_id, paciente_id, medico_id, exames_solicitados, observacoes, cid_codigo, cid_descricao)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           prontuarioId,
           pr.paciente_id,
           pr.medico_id,
           body.exames_solicitados,
           body.observacoes ?? null,
+          body.cid_codigo?.trim() || null,
+          body.cid_descricao?.trim() || null,
         );
       }
     })();
@@ -411,7 +423,7 @@ documentosRouter.get(
     const pedido = getDb()
       .prepare(`SELECT * FROM pedidos_exame WHERE prontuario_id = ? ORDER BY id DESC LIMIT 1`)
       .get(prontuarioId) as
-      | { exames_solicitados: string; observacoes: string | null }
+      | { exames_solicitados: string; observacoes: string | null; cid_codigo: string | null; cid_descricao: string | null }
       | undefined;
     if (!pedido?.exames_solicitados?.trim()) {
       res.status(400).json({ error: "Salve o pedido de exame antes de gerar o PDF" });
@@ -421,6 +433,7 @@ documentosRouter.get(
       ctxFromRow(row),
       pedido.exames_solicitados,
       pedido.observacoes,
+      { codigo: pedido.cid_codigo, descricao: pedido.cid_descricao },
     );
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(

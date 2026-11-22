@@ -3,6 +3,7 @@ import {
   Calendar,
   FileClock,
   FolderOpen,
+  Landmark,
   LayoutDashboard,
   Mic,
   Settings,
@@ -52,6 +53,14 @@ export const navigation: NavItem[] = [
     path: "/cobranca",
     icon: Wallet,
     modulo: "cobranca",
+  },
+  {
+    label: "Financeiro",
+    icon: Landmark,
+    children: [
+      { label: "Contas a pagar", path: "/financeiro/contas-pagar", modulo: "contas_pagar" },
+      { label: "Caixa (entradas e saídas)", path: "/financeiro/caixa", modulo: "caixa" },
+    ],
   },
   {
     label: "Cadastros",

@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import {
+  CalendarClock,
+  ClipboardList,
+  FileCheck2,
+  FileText,
+  FlaskConical,
+  History,
+  Paperclip,
+  Pill,
+  type LucideIcon,
+} from "lucide-react";
 import { AtendimentoCobrancaPanel } from "../components/AtendimentoCobrancaPanel";
 import { AtendimentoAtestadoPanel } from "../components/AtendimentoAtestadoPanel";
 import { AtendimentoExamesPanel } from "../components/AtendimentoExamesPanel";
@@ -29,8 +40,22 @@ import { ImprimirDocumentosLoteButton } from "../components/ImprimirDocumentosLo
 import { isSafeAppPath } from "../lib/appPath";
 import "../prontuario-papel.css";
 import "../ficha-pdf-fundo.css";
+import "../docs-clinicos.css";
+import "../botoes-modernos.css";
 
 type Aba = "ficha" | "receita" | "atestado" | "pedido" | "exames" | "atendimentos" | "historico" | "cobranca";
+
+/** Ícone de cada opção da barra do atendimento. */
+const ICONE_ABA: Record<Aba, LucideIcon> = {
+  ficha: FileText,
+  exames: Paperclip,
+  atendimentos: CalendarClock,
+  historico: History,
+  receita: Pill,
+  atestado: FileCheck2,
+  pedido: FlaskConical,
+  cobranca: ClipboardList,
+};
 
 type AtendimentoLocationState = {
   abaInicial?: Aba;
@@ -155,6 +180,35 @@ export function AtendimentoPage() {
     "cobranca",
   ]);
   const mostrarValoresCobranca = temModulo(permissoes, "cobranca");
+
+  /**
+   * Marcações nos botões (igual ao Clinicar): nº de remédios na Receita, nº de exames
+   * no Pedido e ✓ no Atestado — mostra o que já foi feito neste atendimento.
+   */
+  const [marcas, setMarcas] = useState<{ receita: number; pedido: number; atestado: boolean }>({
+    receita: 0,
+    pedido: 0,
+    atestado: false,
+  });
+  const carregarMarcas = useCallback(async () => {
+    if (!prontuarioId) return;
+    const [r, p, a] = await Promise.all([
+      podeReceita ? api.receitaGet(prontuarioId).catch(() => null) : Promise.resolve(null),
+      podeDocumentos ? api.pedidoExameGet(prontuarioId).catch(() => null) : Promise.resolve(null),
+      podeDocumentos ? api.atestadoGet(prontuarioId).catch(() => null) : Promise.resolve(null),
+    ]);
+    setMarcas({
+      receita: r?.itens.filter((i) => i.medicamento?.trim()).length ?? 0,
+      pedido:
+        p?.pedido?.exames_solicitados
+          ?.split(/\r?\n/)
+          .filter((l) => l.trim()).length ?? 0,
+      atestado: Boolean(a?.atestado),
+    });
+  }, [prontuarioId, podeReceita, podeDocumentos]);
+  useEffect(() => {
+    void carregarMarcas();
+  }, [carregarMarcas]);
 
   const marcarConsultaEncerrada = useCallback(() => {
     setPr((prev) => (prev ? { ...prev, consulta_encerrada: true } : prev));
@@ -402,7 +456,7 @@ export function AtendimentoPage() {
     }
   };
 
-  const abas: { id: Aba; label: string; show: boolean }[] = [
+  const abas: { id: Aba; label: string; show: boolean; marca?: string | null }[] = [
     {
       id: "ficha",
       label: ehRetificacao ? "Retificação" : "Prontuário",
@@ -411,9 +465,9 @@ export function AtendimentoPage() {
     { id: "exames", label: "Exames anexados", show: podeProntuario },
     { id: "atendimentos", label: "Atendimentos", show: true },
     { id: "historico", label: "Histórico", show: podeProntuario },
-    { id: "receita", label: "Receita", show: podeReceita },
-    { id: "atestado", label: "Atestado", show: podeDocumentos },
-    { id: "pedido", label: "Pedido exame", show: podeDocumentos },
+    { id: "receita", label: "Receita", show: podeReceita, marca: marcas.receita ? String(marcas.receita) : null },
+    { id: "atestado", label: "Atestado", show: podeDocumentos, marca: marcas.atestado ? "✓" : null },
+    { id: "pedido", label: "Pedido exame", show: podeDocumentos, marca: marcas.pedido ? String(marcas.pedido) : null },
     {
       id: "cobranca",
       label: "Procedimentos",
@@ -447,27 +501,37 @@ export function AtendimentoPage() {
           clínicos, use <strong>Retificar</strong> no histórico.
         </div>
       ) : null}
-      <div className="px-4 form-actions form-actions--toolbar border-b border-[var(--border)] pb-2 shrink-0">
-        <VoltarButton
-          className="btn btn-primary btn-sm"
-          onClick={() => void voltarOrigem()}
-        >
+      {/* Barra em cápsula: todas as opções com ícone; a aberta fica em azul. */}
+      <div className="px-4 atend-barra border-b border-[var(--border)] shrink-0">
+        <VoltarButton className="atend-voltar" onClick={() => void voltarOrigem()}>
           {labelVoltarAtendimento(locationState)}
         </VoltarButton>
-        <div className="form-actions__direita">
-        {abas
-          .filter((t) => t.show && t.id !== aba)
-          .map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => irParaAba(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <nav className="atend-tabs" role="tablist" aria-label="Partes do atendimento">
+          {abas
+            .filter((t) => t.show)
+            .map((t) => {
+              const Icone = ICONE_ABA[t.id];
+              const ativa = t.id === aba;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={ativa}
+                  className={`atend-tab ${ativa ? "atend-tab--ativa" : ""}`}
+                  onClick={() => irParaAba(t.id)}
+                >
+                  <Icone size={18} strokeWidth={2.2} aria-hidden />
+                  <span>{t.label}</span>
+                  {t.marca ? (
+                    <span className="atend-tab__marca" title="Já preenchido neste atendimento">
+                      {t.marca}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+        </nav>
       </div>
       {podeTrocarFicha && aba === "ficha" ? (
         <div className="px-4 pb-2 shrink-0">
@@ -719,6 +783,7 @@ export function AtendimentoPage() {
                 pacienteNome={pr.paciente_nome ?? ""}
                 somenteLeitura={somenteLeitura}
                 onConsultaEncerrada={marcarConsultaEncerrada}
+                onMudou={() => void carregarMarcas()}
                 onVoltar={() => irParaAba("ficha")}
               />
             </div>
@@ -731,6 +796,7 @@ export function AtendimentoPage() {
                 pacienteNome={pr.paciente_nome ?? ""}
                 somenteLeitura={somenteLeitura}
                 onConsultaEncerrada={marcarConsultaEncerrada}
+                onMudou={() => void carregarMarcas()}
                 cidInicial={{
                   codigo: pr.cid_codigo ?? "",
                   descricao: pr.cid_descricao ?? "",
@@ -746,6 +812,7 @@ export function AtendimentoPage() {
                 pacienteNome={pr.paciente_nome ?? ""}
                 somenteLeitura={somenteLeitura}
                 onConsultaEncerrada={marcarConsultaEncerrada}
+                onMudou={() => void carregarMarcas()}
                 onVoltar={() => irParaAba("ficha")}
               />
           ) : null}

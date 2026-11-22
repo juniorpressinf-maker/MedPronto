@@ -36,6 +36,8 @@ import { CobrancaContaPage } from "./pages/cobranca/CobrancaContaPage";
 import { CobrancaPrecosPage } from "./pages/cobranca/CobrancaPrecosPage";
 import { CobrancaReceberConveniosPage } from "./pages/cobranca/CobrancaReceberConveniosPage";
 import { CobrancaRelatoriosPage } from "./pages/cobranca/CobrancaRelatoriosPage";
+import { CaixaPage } from "./pages/financeiro/CaixaPage";
+import { ContasPagarPage } from "./pages/financeiro/ContasPagarPage";
 import { SetupPage } from "./pages/SetupPage";
 import { TranscricaoPilotoPage } from "./pages/TranscricaoPilotoPage";
 import { UsuariosPage } from "./pages/UsuariosPage";
@@ -224,6 +226,22 @@ function AppRoutes() {
             }
           />
         </Route>
+        <Route
+          path="financeiro/contas-pagar"
+          element={
+            <ModuloGuard modulo="contas_pagar">
+              <ContasPagarPage />
+            </ModuloGuard>
+          }
+        />
+        <Route
+          path="financeiro/caixa"
+          element={
+            <ModuloGuard modulo="caixa">
+              <CaixaPage />
+            </ModuloGuard>
+          }
+        />
         <Route
           path="configuracoes/clinica"
           element={

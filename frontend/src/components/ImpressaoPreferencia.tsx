@@ -12,22 +12,35 @@ type Props = {
   medicoId?: number;
   /** Bloco no formulário (rótulo em cima, margens sempre visíveis). */
   noCadastro?: boolean;
+  /**
+   * Controlado pelo formulário (cadastro de médicos): não grava sozinho — avisa a
+   * mudança e o botão "Salvar alterações" grava junto com o resto.
+   */
+  valor?: PreferenciaImpressao;
+  onMudar?: (p: PreferenciaImpressao) => void;
 };
 
-export function ImpressaoPreferencia({ medicoId, noCadastro }: Props = {}) {
+export function ImpressaoPreferencia({ medicoId, noCadastro, valor, onMudar }: Props = {}) {
   const msg = useMessageBox();
-  const [pref, setPref] = useState<PreferenciaImpressao | null>(null);
+  const controlado = Boolean(onMudar);
+  const [prefProprio, setPref] = useState<PreferenciaImpressao | null>(null);
   const [aberto, setAberto] = useState(false);
 
   useEffect(() => {
+    if (controlado) return;
     void (medicoId ? api.medicoImpressao(medicoId) : api.preferenciaImpressao())
       .then(setPref)
       .catch(() => setPref(null));
-  }, [medicoId]);
+  }, [medicoId, controlado]);
 
+  const pref = controlado ? (valor ?? null) : prefProprio;
   if (!pref) return null;
 
   const salvar = async (novo: PreferenciaImpressao) => {
+    if (onMudar) {
+      onMudar(novo); // formulário: grava no "Salvar alterações"
+      return;
+    }
     const antes = pref;
     setPref(novo);
     try {
@@ -94,11 +107,19 @@ export function ImpressaoPreferencia({ medicoId, noCadastro }: Props = {}) {
               className="legacy-input w-20"
               min={0}
               max={120}
-              defaultValue={pref.timbrado_topo_mm}
-              onBlur={(e) => {
-                const v = mm(e.target.value, 120);
-                if (v !== pref.timbrado_topo_mm) void salvar({ ...pref, timbrado_topo_mm: v });
-              }}
+              {...(controlado
+                ? {
+                    value: pref.timbrado_topo_mm,
+                    onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+                      void salvar({ ...pref, timbrado_topo_mm: mm(e.target.value, 120) }),
+                  }
+                : {
+                    defaultValue: pref.timbrado_topo_mm,
+                    onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
+                      const v = mm(e.target.value, 120);
+                      if (v !== pref.timbrado_topo_mm) void salvar({ ...pref, timbrado_topo_mm: v });
+                    },
+                  })}
             />
           </label>
           <label className="flex items-center justify-between gap-2">
@@ -108,11 +129,19 @@ export function ImpressaoPreferencia({ medicoId, noCadastro }: Props = {}) {
               className="legacy-input w-20"
               min={0}
               max={80}
-              defaultValue={pref.timbrado_rodape_mm}
-              onBlur={(e) => {
-                const v = mm(e.target.value, 80);
-                if (v !== pref.timbrado_rodape_mm) void salvar({ ...pref, timbrado_rodape_mm: v });
-              }}
+              {...(controlado
+                ? {
+                    value: pref.timbrado_rodape_mm,
+                    onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+                      void salvar({ ...pref, timbrado_rodape_mm: mm(e.target.value, 80) }),
+                  }
+                : {
+                    defaultValue: pref.timbrado_rodape_mm,
+                    onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
+                      const v = mm(e.target.value, 80);
+                      if (v !== pref.timbrado_rodape_mm) void salvar({ ...pref, timbrado_rodape_mm: v });
+                    },
+                  })}
             />
           </label>
           {!noCadastro && (

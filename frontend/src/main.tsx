@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import "./medpronto-ux.css";
 import "./prontuario-papel.css";
+import "./botoes-globais.css";
 import App from "./App.tsx";
 
 createRoot(document.getElementById("root")!).render(

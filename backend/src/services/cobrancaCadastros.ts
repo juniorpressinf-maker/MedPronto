@@ -363,10 +363,13 @@ export function obterMatrizPrecos(db: Database = getDb()): MatrizPrecos {
 }
 
 export function salvarPrecos(
-  itens: { procedimento_id: number; convenio_id: number; valor_centavos: number }[],
+  itens: { procedimento_id: number; convenio_id: number; valor_centavos: number | null }[],
   db: Database = getDb(),
 ): MatrizPrecos {
   const tx = db.transaction(() => {
+    const apagar = db.prepare(
+      `DELETE FROM procedimento_precos WHERE procedimento_id = ? AND convenio_id = ?`,
+    );
     const stmt = db.prepare(
       `INSERT INTO procedimento_precos (procedimento_id, convenio_id, valor_centavos, vigencia_inicio)
        VALUES (?, ?, ?, date('now', 'localtime'))
@@ -374,6 +377,17 @@ export function salvarPrecos(
        DO UPDATE SET valor_centavos = excluded.valor_centavos`,
     );
     for (const item of itens) {
+      // Célula vazia na tabela = sem preço (retira o valor cadastrado).
+      if (item.valor_centavos === null) {
+        try {
+          apagar.run(item.procedimento_id, item.convenio_id);
+        } catch {
+          throw new Error(
+            "Não foi possível retirar um preço que já está em uso. Informe um valor (0 = gratuito).",
+          );
+        }
+        continue;
+      }
       if (item.valor_centavos < 0) {
         throw new Error("Valor não pode ser negativo");
       }

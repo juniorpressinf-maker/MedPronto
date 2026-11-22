@@ -1,9 +1,68 @@
+import { useEffect, useState } from "react";
 import { CadastroSimples } from "../components/CadastroSimples";
 import { ImpressaoPreferencia } from "../components/ImpressaoPreferencia";
+import { api, type PreferenciaImpressao } from "../lib/api";
+
+type EstadoImpressao = { editId: number; original: PreferenciaImpressao; atual: PreferenciaImpressao };
+
+const igual = (a: PreferenciaImpressao, b: PreferenciaImpressao) =>
+  Boolean(a.impressao_timbrado) === Boolean(b.impressao_timbrado) &&
+  a.timbrado_topo_mm === b.timbrado_topo_mm &&
+  a.timbrado_rodape_mm === b.timbrado_rodape_mm;
+
+/** Impressão do médico dentro do formulário: carrega ao abrir; grava no "Salvar alterações". */
+function ImpressaoDoMedico(props: {
+  editId: number;
+  estado: EstadoImpressao | null;
+  setEstado: (e: EstadoImpressao | null) => void;
+}) {
+  const { editId, setEstado } = props;
+  useEffect(() => {
+    let vivo = true;
+    void api
+      .medicoImpressao(editId)
+      .then((p) => {
+        if (vivo) setEstado({ editId, original: p, atual: p });
+      })
+      .catch(() => {});
+    return () => {
+      vivo = false;
+      setEstado(null); // saiu do formulário sem salvar: descarta
+    };
+  }, [editId, setEstado]);
+
+  const e = props.estado;
+  if (!e || e.editId !== editId) return null;
+  return (
+    <ImpressaoPreferencia
+      noCadastro
+      valor={e.atual}
+      onMudar={(p) => setEstado({ ...e, atual: p })}
+    />
+  );
+}
 
 export function MedicosPage() {
+  const [impressao, setImpressao] = useState<EstadoImpressao | null>(null);
+  const extraPendente =
+    impressao && !igual(impressao.original, impressao.atual)
+      ? {
+          dirty: true,
+          salvar: async () => {
+            const p = impressao.atual;
+            const salvo = await api.medicoImpressaoSalvar(impressao.editId, {
+              impressao_timbrado: Boolean(p.impressao_timbrado),
+              timbrado_topo_mm: p.timbrado_topo_mm,
+              timbrado_rodape_mm: p.timbrado_rodape_mm,
+            });
+            setImpressao({ editId: impressao.editId, original: salvo, atual: salvo });
+          },
+        }
+      : null;
+
   return (
     <CadastroSimples
+      extraPendente={extraPendente}
       title="Médicos"
       subtitle="Profissionais que atendem na clínica — usados na agenda"
       resource="medicos"
@@ -78,9 +137,10 @@ export function MedicosPage() {
       formExtra={({ editId }) => (
         <div className="mt-3">
           <h3 className="text-sm font-semibold mb-2">Impressão dos documentos do atendimento</h3>
-          <ImpressaoPreferencia key={editId} medicoId={editId} noCadastro />
+          <ImpressaoDoMedico key={editId} editId={editId} estado={impressao} setEstado={setImpressao} />
           <p className="text-xs text-[var(--muted)] mt-1 mb-0">
-            Receita, atestado, pedido de exame e consulta. Salva ao mudar. O médico também pode trocar na tela de atendimento.
+            Receita, atestado, pedido de exame e consulta. Grava ao clicar em «Salvar alterações». O médico
+            também pode trocar na tela de atendimento.
           </p>
         </div>
       )}

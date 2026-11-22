@@ -1,0 +1,150 @@
+/* =====================================================================
+   Botões modernos — Atendimento e Sala de espera.
+   MESMO TAMANHO dos botões de antes (altura 48px, fonte 1rem,
+   padding 0.65rem 1.25rem): muda só a aparência (formato, ícone, cor).
+   ===================================================================== */
+
+/* Medidas iguais às de .btn (medpronto-ux.css) */
+.atend-voltar,
+.atend-tab,
+.acao-pill {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: var(--agenda-btn-min-h);
+  padding: 0.65rem 1.25rem;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  border-radius: 999px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.15s, box-shadow 0.15s, background 0.15s, border-color 0.15s, color 0.15s;
+}
+.atend-voltar:focus-visible,
+.atend-tab:focus-visible,
+.acao-pill:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* ---------- Atendimento ---------- */
+.atend-barra {
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+.atend-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+/* Voltar: contorno azul, fundo branco */
+.atend-voltar {
+  border: 1.5px solid #2563eb;
+  background: #fff;
+  color: #1d4ed8;
+}
+.atend-voltar:hover {
+  background: #eff6ff;
+  transform: translateX(-2px);
+}
+
+/* Opções: brancas com ícone azul; a aberta fica em azul degradê */
+.atend-tab {
+  position: relative;
+  border: 1.5px solid #bfdbfe;
+  background: #fff;
+  color: #1e3a8a;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+.atend-tab svg {
+  color: #2563eb;
+  flex-shrink: 0;
+}
+.atend-tab:hover {
+  border-color: #60a5fa;
+  background: #eff6ff;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px -6px rgba(37, 99, 235, 0.45);
+}
+.atend-tab--ativa,
+.atend-tab--ativa:hover {
+  border-color: transparent;
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 60%, #3b82f6 100%);
+  color: #fff;
+  transform: none;
+  box-shadow: 0 6px 16px -4px rgba(37, 99, 235, 0.6);
+}
+.atend-tab--ativa svg {
+  color: #fff;
+}
+/* Marcação (nº de remédios / exames, ✓ atestado): selo no canto, sem mudar o tamanho */
+.atend-tab__marca {
+  position: absolute;
+  top: -0.45rem;
+  right: -0.3rem;
+  min-width: 1.3rem;
+  height: 1.3rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.3rem;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff;
+  pointer-events: none;
+}
+
+/* ---------- Sala de espera ---------- */
+/* Ação principal (Check-in, Atender, Finalizar) */
+.acao-pill--primaria {
+  border: 1.5px solid transparent;
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 60%, #3b82f6 100%);
+  color: #fff;
+  box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.6);
+}
+.acao-pill--primaria:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px -6px rgba(37, 99, 235, 0.7);
+}
+/* Ação secundária (Não veio, Exames, Ver consulta, Ver ASO, Conta) */
+.acao-pill--suave {
+  border: 1.5px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.acao-pill--suave:hover {
+  border-color: #60a5fa;
+  background: #dbeafe;
+  transform: translateY(-1px);
+}
+/* "Não veio": vermelho só ao passar o mouse (ação que tira o paciente da agenda) */
+.acao-pill--alerta:hover {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+/* Conta paga: verde */
+.acao-pill--pago {
+  border: 1.5px solid #86efac;
+  background: #f0fdf4;
+  color: #15803d;
+}
+.acao-pill--pago:hover {
+  border-color: #4ade80;
+  background: #dcfce7;
+  transform: translateY(-1px);
+}
