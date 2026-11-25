@@ -85,6 +85,10 @@ export function FichaFolhaLayout({
             <span className="prontuario-linha__valor prontuario-linha__valor--curto prontuario-linha__valor--exemplo">
               15/03/1978
             </span>
+            <span className="prontuario-linha__rotulo">Idade:</span>
+            <span className="prontuario-linha__valor prontuario-linha__valor--idade prontuario-linha__valor--exemplo">
+              48 anos e 8 meses
+            </span>
           </div>
           <div className="prontuario-linha">
             <span className="prontuario-linha__rotulo">CPF:</span>

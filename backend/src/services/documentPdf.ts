@@ -73,13 +73,14 @@ function dataHojeExtenso(): string {
   return `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`;
 }
 
-/** Modo clássico, antes da assinatura: "Ribeirão Preto (SP), 20 de novembro de 2026." */
+/** Modo clássico, antes da assinatura: "Ribeirão Preto (SP), 20 de novembro de 2026." (à esquerda) */
 function desenharLocalData(doc: PDFKit.PDFDocument, ctx: PdfDocContext) {
   const local = cidadeUf(ctx);
   doc.moveDown(2);
   doc.font("Helvetica").fontSize(11);
-  doc.text(`${local ? `${local}, ` : ""}${dataHojeExtenso()}.`, { align: "center" });
-  doc.moveDown(2.5);
+  // Data alinhada à esquerda (margem do texto) e 2 linhas a mais antes da assinatura.
+  doc.text(`${local ? `${local}, ` : ""}${dataHojeExtenso()}.`, doc.page.margins.left, doc.y, { align: "left" });
+  doc.moveDown(4.5);
 }
 
 function areaUtil(doc: PDFKit.PDFDocument) {

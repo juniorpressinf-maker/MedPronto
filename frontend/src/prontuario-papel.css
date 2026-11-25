@@ -141,6 +141,11 @@
   min-width: 6rem;
 }
 
+.prontuario-linha__valor--idade {
+  flex: 0 1 10rem;
+  min-width: 8.5rem;
+}
+
 .prontuario-linha__valor--telefone {
   flex: 0 0 11rem;
   min-width: 11rem;

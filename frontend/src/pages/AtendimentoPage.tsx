@@ -42,6 +42,7 @@ import "../prontuario-papel.css";
 import "../ficha-pdf-fundo.css";
 import "../docs-clinicos.css";
 import "../botoes-modernos.css";
+import { idadeAnosMeses } from "../lib/idade";
 
 type Aba = "ficha" | "receita" | "atestado" | "pedido" | "exames" | "atendimentos" | "historico" | "cobranca";
 
@@ -645,6 +646,14 @@ export function AtendimentoPage() {
                     tabIndex={-1}
                     className="prontuario-linha__valor prontuario-linha__valor--curto prontuario-linha__input"
                     value={formatPacienteNasc(pr.paciente_nasc)}
+                  />
+                  <span className="prontuario-linha__rotulo">Idade:</span>
+                  <input
+                    type="text"
+                    readOnly
+                    tabIndex={-1}
+                    className="prontuario-linha__valor prontuario-linha__valor--idade prontuario-linha__input"
+                    value={idadeAnosMeses(pr.paciente_nasc, pr.data_atendimento)}
                   />
                 </div>
                 <div className="prontuario-linha">

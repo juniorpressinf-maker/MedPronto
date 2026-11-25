@@ -2,6 +2,16 @@
 setlocal
 title MedPronto - Compilar
 cd /d "%~dp0"
+REM Janela sem "Edicao Rapida": clique do mouse nao pausa mais o processo.
+REM Reabre numa janela com titulo proprio; o registro (so desse titulo) tem QuickEdit=0.
+if not "%MP_SEM_EDICAO%"=="1" (
+    reg add "HKCU\Console\MedPronto - Compilar" /v QuickEdit /t REG_DWORD /d 0 /f >nul 2>&1
+    set "MP_SEM_EDICAO=1"
+    start "MedPronto - Compilar" "%ComSpec%" /c ""%~f0""
+    exit /b 0
+)
+set "LOGC=%~dp0ULTIMO-ERRO-COMPILAR.txt"
+if exist "%LOGC%" del /q "%LOGC%" >nul 2>&1
 
 REM =====================================================================
 REM  COMPILAR MEDPRONTO - arquivo unico (substitui compilar.bat,
@@ -44,13 +54,14 @@ echo       ok
 echo.
 
 echo [2/4] Compilando o SERVIDOR (backend)... aguarde.
-call npm run build -w backend
+REM Mostra na tela e grava em ULTIMO-ERRO-COMPILAR.txt (apagado se der certo).
+powershell -NoProfile -ExecutionPolicy Bypass -Command "cmd /c 'npm run build -w backend 2>&1' | Tee-Object -FilePath $env:LOGC -Append; exit $LASTEXITCODE"
 if errorlevel 1 goto erro
 echo       servidor compilado.
 echo.
 
 echo [3/4] Compilando a TELA (frontend)... aguarde.
-call npm run build -w frontend
+powershell -NoProfile -ExecutionPolicy Bypass -Command "cmd /c 'npm run build -w frontend 2>&1' | Tee-Object -FilePath $env:LOGC -Append; exit $LASTEXITCODE"
 if errorlevel 1 goto erro
 echo       tela compilada.
 echo.
@@ -59,6 +70,9 @@ echo ==============================================
 echo   COMPILADO COM SUCESSO
 echo ==============================================
 echo.
+if exist "%LOGC%" del /q "%LOGC%" >nul 2>&1
+REM Descarta teclas apertadas durante a compilacao (nao responder S/N sozinho).
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\console-ajustes.ps1" -Acao LimparTeclas >nul 2>&1
 echo [4/4] Reiniciar o MedPronto agora para as mudancas valerem?
 echo       Quem estiver usando o sistema perde o que nao salvou.
 echo.
@@ -85,6 +99,7 @@ echo   Ok, nao reiniciei. Para as mudancas valerem:
 echo     - mudou so a tela: Ctrl+F5 no navegador;
 echo     - mudou o servidor: feche o MedPronto pelo atalho de parar e abra de novo.
 echo.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\console-ajustes.ps1" -Acao LimparTeclas >nul 2>&1
 pause
 exit /b 0
 
@@ -93,7 +108,9 @@ echo.
 echo ==============================================
 echo   ERRO NA COMPILACAO - veja a mensagem acima.
 echo   Nada foi alterado no MedPronto em uso.
+echo   O erro tambem ficou gravado em ULTIMO-ERRO-COMPILAR.txt
 echo ==============================================
 echo.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\console-ajustes.ps1" -Acao LimparTeclas >nul 2>&1
 pause
 exit /b 1

@@ -9,6 +9,14 @@ echo.
 rem Usa o Node portatil da propria pasta do projeto.
 set "PATH=%~dp0node;%PATH%"
 cd /d "%~dp0"
+REM Janela sem "Edicao Rapida": clique do mouse nao pausa mais o processo.
+REM Reabre numa janela com titulo proprio; o registro (so desse titulo) tem QuickEdit=0.
+if not "%MP_SEM_EDICAO%"=="1" (
+    reg add "HKCU\Console\Compilar MedPronto" /v QuickEdit /t REG_DWORD /d 0 /f >nul 2>&1
+    set "MP_SEM_EDICAO=1"
+    start "Compilar MedPronto" "%ComSpec%" /c ""%~f0""
+    exit /b 0
+)
 
 echo [1/2] Compilando o SERVIDOR (backend)...
 call npm run build -w backend
@@ -29,6 +37,7 @@ echo.
 echo  - Mudou so a tela: de Ctrl+F5 no navegador.
 echo  - Mudou o servidor: feche o MedPronto (atalho de parar) e abra de novo.
 echo.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\console-ajustes.ps1" -Acao LimparTeclas >nul 2>&1
 pause
 exit /b 0
 
@@ -39,5 +48,6 @@ echo   ERRO NA COMPILACAO - veja a mensagem acima.
 echo   Nada foi alterado no MedPronto em uso.
 echo ========================================
 echo.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\console-ajustes.ps1" -Acao LimparTeclas >nul 2>&1
 pause
 exit /b 1

@@ -431,14 +431,16 @@ export function FilaMedicoPage() {
     navigate(`/admissional/${admissionalId}`, { state: { fromFila: true, returnTo: voltarParaFila } });
   };
 
-  const acoesVerFinalizado =
-    acoesAtender ||
-    temModulo(permissoes, ["prontuario_ler", "admissional", "admissional_agenda"])
-      ? {
-          onVerConsulta: verConsulta,
-          onVerAdmissional: verAdmissional,
-        }
-      : {};
+  // Cada botão só aparece para quem pode abrir a tela (mesmos módulos das rotas no App.tsx);
+  // senão o ModuloGuard mandava para o início (secretaria com ASO via "Ver consulta").
+  const acoesVerFinalizado = {
+    ...(temModulo(permissoes, ["prontuario_escrever", "prontuario_ler", "fila_medico"])
+      ? { onVerConsulta: verConsulta }
+      : {}),
+    ...(acoesAtender || temModulo(permissoes, ["admissional", "admissional_agenda"])
+      ? { onVerAdmissional: verAdmissional }
+      : {}),
+  };
 
   const subtitulo = ehSecretaria
     ? "Agendados: check-in. Conta se já existir — em qualquer coluna."
