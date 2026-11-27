@@ -31,6 +31,7 @@ import { getDb } from "../db/index.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { gerarPdfAdmissional, gerarPdfConsulta } from "../services/documentPdf.js";
 import { logAcesso } from "../services/logAcesso.js";
+import { lancarAsoAvulsoNaConta } from "../services/cobrancaAsoAvulso.js";
 import { assertMedicoVinculoPaciente } from "../services/vinculosClinicos.js";
 import { nomeExameParaExibicao } from "../utils/examesStorage.js";
 import {
@@ -570,7 +571,21 @@ admissionaisRouter.post(
       throw e;
     }
 
-    const row = getById(Number(info.lastInsertRowid));
+    const novoId = Number(info.lastInsertRowid);
+    if (body.agendamento_id == null) {
+      // Auditoria 26/11 [4]: ASO avulso já entra na conta do dia (não fica sem cobrança).
+      // Falha na cobrança não impede o atendimento — o ASO continua sugerido ao abrir conta.
+      try {
+        const db = getDb();
+        const r = db.transaction(() => lancarAsoAvulsoNaConta(novoId, req.usuario!.id, db))();
+        if (r.conta_id == null && r.motivo !== "nao_avulso") {
+          console.warn(`[aso-avulso] ASO ${novoId} sem conta: ${r.motivo}`);
+        }
+      } catch (e) {
+        console.warn(`[aso-avulso] ASO ${novoId} não entrou na conta:`, e instanceof Error ? e.message : e);
+      }
+    }
+    const row = getById(novoId);
     res.status(201).json(rowToJson(row!));
   }),
 );

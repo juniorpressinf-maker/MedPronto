@@ -11,6 +11,7 @@ import {
   type CobrancaItemStatus,
   type CobrancaProcedimento,
   type Paciente,
+  type CobrancaPendenteAnterior,
 } from "../../lib/api";
 import { cobrancaReturnPath, linkCobrancaConta } from "../../lib/cobrancaContaNav";
 import { isDataIsoValida } from "../../lib/dataIso";
@@ -50,6 +51,9 @@ export function CobrancaContasPage() {
     dataUrl && isDataIsoValida(dataUrl) ? dataUrl : hojeIso();
   const [data, setData] = useState(dataInicial);
   const [lista, setLista] = useState<CobrancaContaResumo[]>([]);
+  /** Igual ao CliniCar: aba com as contas em aberto de dias anteriores. */
+  const [pendencias, setPendencias] = useState<CobrancaPendenteAnterior[]>([]);
+  const [verPendencias, setVerPendencias] = useState(false);
   const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState(false);
   const [pacientes, setPacientes] = useState<Paciente[]>([]);
@@ -77,7 +81,12 @@ export function CobrancaContasPage() {
   const carregar = useCallback(async () => {
     setLoading(true);
     try {
-      setLista(await api.cobrancaContasList(data));
+      const [doDia, pend] = await Promise.all([
+        api.cobrancaContasList(data),
+        api.cobrancaPendenciasAnteriores(data).catch(() => [] as CobrancaPendenteAnterior[]),
+      ]);
+      setLista(doDia);
+      setPendencias(pend);
     } catch (e) {
       void msg.error(e instanceof ApiError ? e.message : "Erro ao carregar");
     } finally {
@@ -274,9 +283,87 @@ export function CobrancaContasPage() {
         </button>
       </div>
 
+      <div className="px-4 pt-2 flex flex-wrap gap-2" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={!verPendencias}
+          className={`btn btn-sm ${!verPendencias ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => setVerPendencias(false)}
+        >
+          Contas de {formatDataBr(data)}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={verPendencias}
+          className={`btn btn-sm ${verPendencias ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => setVerPendencias(true)}
+          title="Contas que ficaram em aberto em dias anteriores"
+        >
+          Pendências de outros dias
+          {pendencias.length > 0 ? (
+            <span className="ml-1 inline-block rounded-full bg-red-600 px-2 text-xs font-semibold text-white">
+              {pendencias.length}
+            </span>
+          ) : null}
+        </button>
+      </div>
+
       <div className="est-card--page__area scroll-interno scroll-interno--flex flex-1 min-h-0">
         {loading ? (
           <p className="p-4 text-sm text-[var(--muted)]">Carregando…</p>
+        ) : verPendencias ? (
+          pendencias.length === 0 ? (
+            <p className="p-4 text-sm text-[var(--muted)]">
+              Nenhuma conta em aberto de dias anteriores.
+            </p>
+          ) : (
+            <div className="dup-table-wrap">
+              <table className="data-table cobranca-dia-table">
+                <thead>
+                  <tr>
+                    <th className="cobranca-dia-hora">Data</th>
+                    <th className="cobranca-dia-nome">Paciente</th>
+                    <th className="cobranca-dia-procs">Procedimentos</th>
+                    <th className="cobranca-dia-conv">Convênio</th>
+                    <th className="cobranca-dia-num text-right">Saldo</th>
+                    <th className="cobranca-dia-acao" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendencias.map((p) => (
+                    <tr key={p.id}>
+                      <td className="cobranca-dia-hora whitespace-nowrap">
+                        {formatDataBr(p.data)} {labelHoraConta(p.agendamento_hora)}
+                      </td>
+                      <td className="cobranca-dia-nome">
+                        {p.paciente_nome}
+                        {p.sem_preco ? (
+                          <span className="block text-xs text-amber-900">Procedimento sem preço</span>
+                        ) : null}
+                      </td>
+                      <td className="cobranca-dia-procs text-sm">
+                        <span className="cobranca-dia-procs__txt">{p.procedimentos_nomes || "—"}</span>
+                      </td>
+                      <td className="cobranca-dia-conv">{p.convenio_nome ?? "—"}</td>
+                      <td className="cobranca-dia-num text-right font-semibold text-amber-800">
+                        {formatBRL(p.saldo_pendente_centavos)}
+                      </td>
+                      <td className="cobranca-dia-acao">
+                        <Link
+                          to={linkCobrancaConta(p.id, cobrancaReturn, "Voltar às contas")}
+                          className={classeBotaoContaAgendamento("em_aberto", "no-underline")}
+                        >
+                          Mostrar
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         ) : lista.length === 0 ? (
           <p className="p-4 text-sm text-[var(--muted)]">
             Nenhuma conta em {formatDataBr(data)}.

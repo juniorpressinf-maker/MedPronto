@@ -8,7 +8,6 @@ import {
   Mic,
   Settings,
   Stethoscope,
-  Wallet,
 } from "lucide-react";
 
 export type NavItem = {
@@ -20,7 +19,7 @@ export type NavItem = {
   children?: NavItem[];
 };
 
-/** Menu principal: cada item com `path` abre a rotina direto. Cadastros e Configurações usam `children`. */
+/** Menu principal: cada item com `path` abre a rotina direto. Cadastros, Financeiro e Configurações usam `children`. */
 export const navigation: NavItem[] = [
   { label: "Dashboard", path: "/", icon: LayoutDashboard },
   {
@@ -49,20 +48,6 @@ export const navigation: NavItem[] = [
     modulo: ["prontuario_escrever", "fila_medico"],
   },
   {
-    label: "Cobrança",
-    path: "/cobranca",
-    icon: Wallet,
-    modulo: "cobranca",
-  },
-  {
-    label: "Financeiro",
-    icon: Landmark,
-    children: [
-      { label: "Contas a pagar", path: "/financeiro/contas-pagar", modulo: "contas_pagar" },
-      { label: "Caixa (entradas e saídas)", path: "/financeiro/caixa", modulo: "caixa" },
-    ],
-  },
-  {
     label: "Cadastros",
     icon: FolderOpen,
     children: [
@@ -73,6 +58,15 @@ export const navigation: NavItem[] = [
         path: "/cadastros/medicamentos-exames",
         modulo: ["fichas_config", "fichas_medico"],
       },
+    ],
+  },
+  {
+    label: "Financeiro",
+    icon: Landmark,
+    children: [
+      { label: "Cobrança", path: "/cobranca", modulo: "cobranca" },
+      { label: "Contas a pagar", path: "/financeiro/contas-pagar", modulo: "contas_pagar" },
+      { label: "Caixa (entradas e saídas)", path: "/financeiro/caixa", modulo: "caixa" },
     ],
   },
   {

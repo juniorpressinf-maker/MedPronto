@@ -5,6 +5,7 @@ import { convenioExigeGuia, CONVENIO_PARTICULAR_ID } from "./cobrancaCadastros.j
 import { logAcesso } from "./logAcesso.js";
 import {
   FORMAS_PAGAMENTO,
+  assertContaSemProcedimentoSemPreco,
   assertContaTemItensCobraveis,
   carregarGuiaConvenio,
   obterContaDetalhe,
@@ -60,6 +61,8 @@ export function registrarPagamento(
 
   const conta = getContaRow(contaId, db);
   assertContaRecebePagamento(conta);
+  // Auditoria 26/11 [1]: com procedimento sem preço o saldo sairia menor do que o devido.
+  assertContaSemProcedimentoSemPreco(contaId, db);
 
   // B2 [8]: não aceita pagar mais do que o saldo (evita saldo negativo e arrecadado inflado).
   const saldo = obterContaDetalhe(contaId, db).saldo_pendente_centavos;
@@ -159,6 +162,9 @@ export function fecharConta(
   let status: string;
 
   assertContaTemItensCobraveis(contaId, db);
+  if (modo !== "isento") {
+    assertContaSemProcedimentoSemPreco(contaId, db);
+  }
 
   if (modo === "isento") {
     const motivo = dados.motivo?.trim();
@@ -288,7 +294,7 @@ export function estornarPagamento(
     }
     const pag = db
       .prepare(
-        `SELECT id, forma, valor_centavos, registrado_em, registrado_por,
+        `SELECT id, forma, valor_centavos, registrado_em, registrado_por, observacao,
                 date(registrado_em) = date('now', 'localtime') AS hoje
          FROM conta_pagamentos WHERE id = ? AND conta_id = ?`,
       )
@@ -299,6 +305,7 @@ export function estornarPagamento(
           valor_centavos: number;
           registrado_em: string;
           registrado_por: number | null;
+          observacao: string | null;
           hoje: number;
         }
       | undefined;
@@ -309,6 +316,23 @@ export function estornarPagamento(
     if (!pag.hoje) {
       throw new Error("Só é possível estornar pagamento registrado hoje (o caixa de outro dia já foi fechado)");
     }
+    // Auditoria 26/11 [9]: guarda a linha do pagamento antes de tirá-lo do caixa.
+    db.prepare(
+      `INSERT INTO conta_pagamentos_estornados
+       (pagamento_id, conta_id, forma, valor_centavos, registrado_em, registrado_por,
+        observacao, estornado_por, motivo)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      pag.id,
+      contaId,
+      pag.forma,
+      pag.valor_centavos,
+      pag.registrado_em,
+      pag.registrado_por,
+      pag.observacao,
+      usuarioId,
+      motivoLimpo.slice(0, 500),
+    );
     db.prepare(`DELETE FROM conta_pagamentos WHERE id = ?`).run(pag.id);
     logAcesso({
       usuarioId,
@@ -390,9 +414,10 @@ export function reabrirConta(
 
   db.prepare(
     `UPDATE contas_atendimento
-     SET status = 'em_aberto', fechada_em = NULL, fechada_por = NULL
+     SET status = 'em_aberto', fechada_em = NULL, fechada_por = NULL,
+         reaberta_em = ?
      WHERE id = ?`,
-  ).run(contaId);
+  ).run(agoraLocalSql(), contaId);
 
   logAcesso({
     usuarioId,

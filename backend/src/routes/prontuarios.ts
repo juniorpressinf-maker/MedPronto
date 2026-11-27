@@ -44,7 +44,7 @@ const PRONTUARIO_DETALHE_SQL = `SELECT
   pr.retorno_dias, pr.retorno_ate, pr.retificacao_de_id, pr.motivo_retificacao,
   pr.retificacao_finalizada, pr.created_at,
   pr.ficha_template_id, pr.template_snapshot_json, pr.dados_json,
-  p.nome AS paciente_nome, p.data_nasc AS paciente_nasc, p.cpf AS paciente_cpf,
+  p.nome AS paciente_nome, p.data_nasc AS paciente_nasc, p.cpf AS paciente_cpf, p.nome_mae AS paciente_mae,
   p.telefone AS paciente_telefone, p.email AS paciente_email,
   p.alergias, p.medicacoes_uso, p.observacoes_clinicas,
   u.nome AS medico_nome, u.crm AS medico_crm

@@ -37,6 +37,34 @@ export function carregarPagamentos(
     .all(contaId) as ContaPagamentoRow[];
 }
 
+export type ContaEstornoRow = {
+  id: number;
+  pagamento_id: number;
+  forma: string;
+  valor_centavos: number;
+  registrado_em: string;
+  estornado_em: string;
+  estornado_por_nome: string | null;
+  motivo: string;
+};
+
+/** Pagamentos estornados da conta (registro guardado — auditoria 26/11 [9]). */
+export function carregarEstornos(
+  contaId: number,
+  db: Database = getDb(),
+): ContaEstornoRow[] {
+  return db
+    .prepare(
+      `SELECT e.id, e.pagamento_id, e.forma, e.valor_centavos, e.registrado_em,
+              e.estornado_em, u.nome AS estornado_por_nome, e.motivo
+       FROM conta_pagamentos_estornados e
+       LEFT JOIN usuarios u ON u.id = e.estornado_por
+       WHERE e.conta_id = ?
+       ORDER BY e.id`,
+    )
+    .all(contaId) as ContaEstornoRow[];
+}
+
 export function totalPagoCentavos(pagamentos: ContaPagamentoRow[]): number {
   return pagamentos.reduce((s, p) => s + p.valor_centavos, 0);
 }
@@ -106,6 +134,11 @@ export type ContaRow = {
   fechada_por: number | null;
   created_at: string;
   created_by: number | null;
+  /** Auditoria 26/11: conta reaberta não é reprecificada pela tabela atual. */
+  reaberta_em?: string | null;
+  /** Diferença que o convênio não pagou na baixa (glosa). */
+  glosa_centavos?: number;
+  glosa_motivo?: string | null;
   paciente_nome?: string;
   convenio_nome?: string;
   agendamento_hora?: string | null;
@@ -143,6 +176,14 @@ export type ContaDetalhe = ContaRow & {
   total_liquido_centavos: number;
   total_pago_centavos: number;
   saldo_pendente_centavos: number;
+  /** Pago a mais que o líquido (troco/excedente a devolver). */
+  saldo_credor_centavos: number;
+  /** Procedimentos cobráveis sem preço cadastrado para o convênio da conta (não deixa fechar). */
+  procedimentos_sem_preco: string[];
+  /** true = valores travados (já tem pagamento ou foi reaberta): a tabela de preços atual não muda a conta. */
+  precos_congelados: boolean;
+  /** Pagamentos estornados (não contam no pago). */
+  estornos: ContaEstornoRow[];
 };
 
 export class ProcedimentoDuplicadoError extends Error {
@@ -190,6 +231,82 @@ export function obterPrecoProcedimento(
     )
     .get(procedimentoId, convenioId) as { valor_centavos: number } | undefined;
   return row?.valor_centavos ?? 0;
+}
+
+/** Preço cadastrado na tabela; null = não cadastrado (diferente de 0 = gratuito). */
+export function precoCadastrado(
+  procedimentoId: number,
+  convenioId: number,
+  db: Database = getDb(),
+): number | null {
+  const row = db
+    .prepare(
+      `SELECT valor_centavos FROM procedimento_precos
+       WHERE procedimento_id = ? AND convenio_id = ?`,
+    )
+    .get(procedimentoId, convenioId) as { valor_centavos: number } | undefined;
+  return row ? row.valor_centavos : null;
+}
+
+/** Nomes dos procedimentos cobráveis da conta sem preço cadastrado para o convênio dela. */
+export function listarProcedimentosSemPreco(
+  contaId: number,
+  db: Database = getDb(),
+): string[] {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT pr.nome
+       FROM conta_itens ci
+       JOIN contas_atendimento c ON c.id = ci.conta_id
+       JOIN procedimentos pr ON pr.id = ci.procedimento_id
+       WHERE ci.conta_id = ?
+         AND ci.status IN ('previsto', 'solicitado', 'realizado')
+         AND NOT EXISTS (
+           SELECT 1 FROM procedimento_precos pp
+           WHERE pp.procedimento_id = ci.procedimento_id
+             AND pp.convenio_id = COALESCE(c.convenio_id, ?)
+         )
+       ORDER BY pr.nome COLLATE NOCASE`,
+    )
+    .all(contaId, CONVENIO_PARTICULAR_ID) as { nome: string }[];
+  return rows.map((r) => r.nome);
+}
+
+/** Auditoria 26/11 [1]: não fecha conta com procedimento sem preço (sairia R$ 0 sem ninguém notar). */
+export function assertContaSemProcedimentoSemPreco(
+  contaId: number,
+  db: Database = getDb(),
+): void {
+  const faltam = listarProcedimentosSemPreco(contaId, db);
+  if (faltam.length > 0) {
+    throw new Error(
+      `Sem preço cadastrado para este convênio: ${faltam.join(", ")}. Cadastre em Cobrança › Preços (0 = gratuito) antes de fechar.`,
+    );
+  }
+}
+
+/**
+ * Auditoria 26/11 [2]: a tabela de preços só atualiza a conta enquanto ela não tem
+ * pagamento e nunca foi reaberta. Depois disso, vale o preço do atendimento.
+ * (Troca explícita de convênio continua reprecificando — atualizarConta.)
+ */
+export function momentoCongelamentoPrecos(
+  conta: Pick<ContaRow, "id" | "reaberta_em">,
+  db: Database = getDb(),
+): string | null {
+  const pg = db
+    .prepare(`SELECT MIN(registrado_em) AS m FROM conta_pagamentos WHERE conta_id = ?`)
+    .get(conta.id) as { m: string | null };
+  const marcos = [conta.reaberta_em ?? null, pg.m].filter(Boolean) as string[];
+  if (marcos.length === 0) return null;
+  return marcos.sort()[0];
+}
+
+export function contaComPrecosCongelados(
+  conta: Pick<ContaRow, "id" | "reaberta_em">,
+  db: Database = getDb(),
+): boolean {
+  return momentoCongelamentoPrecos(conta, db) != null;
 }
 
 export function calcularTotalItens(itens: ContaItemRow[]): number {
@@ -514,13 +631,25 @@ export function sincronizarPrecosItensConta(
   contaId: number,
   convenioId: number,
   db: Database = getDb(),
+  /** Só itens lançados depois deste momento (conta com preços congelados). */
+  lancadosApos?: string,
 ): void {
-  const itens = db
-    .prepare(
-      `SELECT id, procedimento_id FROM conta_itens
-       WHERE conta_id = ? AND status != 'cancelado' AND procedimento_id IS NOT NULL`,
-    )
-    .all(contaId) as { id: number; procedimento_id: number }[];
+  const itens = (
+    lancadosApos
+      ? db
+          .prepare(
+            `SELECT id, procedimento_id FROM conta_itens
+             WHERE conta_id = ? AND status != 'cancelado' AND procedimento_id IS NOT NULL
+               AND solicitado_em IS NOT NULL AND solicitado_em > ?`,
+          )
+          .all(contaId, lancadosApos)
+      : db
+          .prepare(
+            `SELECT id, procedimento_id FROM conta_itens
+             WHERE conta_id = ? AND status != 'cancelado' AND procedimento_id IS NOT NULL`,
+          )
+          .all(contaId)
+  ) as { id: number; procedimento_id: number }[];
 
   const upd = db.prepare(
     `UPDATE conta_itens SET valor_centavos = ? WHERE id = ?`,
@@ -548,9 +677,13 @@ export function obterContaDetalhe(
     .get(contaId) as ContaRow | undefined;
   if (!conta) throw new Error("Conta não encontrada");
 
-  if (conta.status === "em_aberto" && !conta.fechada_em) {
+  const aberta = conta.status === "em_aberto" && !conta.fechada_em;
+  const congeladoEm = momentoCongelamentoPrecos(conta, db);
+  const congelados = congeladoEm != null;
+  if (aberta) {
+    // Congelada: só os itens lançados depois do congelamento seguem a tabela.
     const convenioId = conta.convenio_id ?? CONVENIO_PARTICULAR_ID;
-    sincronizarPrecosItensConta(contaId, convenioId, db);
+    sincronizarPrecosItensConta(contaId, convenioId, db, congeladoEm ?? undefined);
   }
 
   const itens = carregarItens(contaId, db);
@@ -558,6 +691,7 @@ export function obterContaDetalhe(
   const totalItens = calcularTotalItens(itens);
   const totalLiquido = Math.max(0, totalItens - (conta.valor_desconto_centavos ?? 0));
   const totalPago = totalPagoCentavos(pagamentos);
+  const glosa = conta.glosa_centavos ?? 0;
   return {
     ...conta,
     itens,
@@ -566,7 +700,11 @@ export function obterContaDetalhe(
     total_itens_centavos: totalItens,
     total_liquido_centavos: totalLiquido,
     total_pago_centavos: totalPago,
-    saldo_pendente_centavos: Math.max(0, totalLiquido - totalPago),
+    saldo_pendente_centavos: Math.max(0, totalLiquido - totalPago - glosa),
+    saldo_credor_centavos: Math.max(0, totalPago - totalLiquido),
+    procedimentos_sem_preco: aberta ? listarProcedimentosSemPreco(contaId, db) : [],
+    precos_congelados: congelados,
+    estornos: carregarEstornos(contaId, db),
   };
 }
 

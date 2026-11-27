@@ -68,6 +68,11 @@ function main(): void {
     1,
     db,
   );
+  // Caixa do dia soma pela data do pagamento (auditoria 26/11 [6]): simula pagamento no dia do teste.
+  db.prepare(`UPDATE conta_pagamentos SET registrado_em = ? WHERE conta_id = ?`).run(
+    `${dataTeste} 12:00:00`,
+    conta.id,
+  );
 
   caixa = obterCaixaDoDia(dataTeste, db);
   assert(caixa.totais.saldo_pendente_centavos === saldo - metade, "saldo após parcial");

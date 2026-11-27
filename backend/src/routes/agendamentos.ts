@@ -277,6 +277,62 @@ agendamentosRouter.get(
   }),
 );
 
+// Igual ao CliniCar: dias anteriores com horário que ficou sem desfecho
+// (agendado sem check-in/falta, ou na sala sem finalizar). Antes de "/:id".
+agendamentosRouter.get(
+  "/pendencias-dias",
+  asyncHandler(async (req, res) => {
+    if (!podeFilaMedico(req) && !podeFilaRecepcao(req) && !podeAgenda(req)) {
+      res.status(403).json({ error: "Sem permissão para fila" });
+      return;
+    }
+    let medicoId = req.query.medico_id ? Number(req.query.medico_id) : null;
+    if (!podeFiltrarFilaTodosMedicos(req) && req.usuario!.perfil === "medico") {
+      medicoId = req.usuario!.id;
+    }
+    let sql = `
+      SELECT a.data,
+             COUNT(*) AS total,
+             SUM(CASE WHEN a.status IN ('presente', 'em_atendimento') THEN 1 ELSE 0 END) AS na_sala,
+             SUM(CASE WHEN a.status = 'agendado' THEN 1 ELSE 0 END) AS sem_desfecho
+      FROM agendamentos a
+      WHERE a.data < date('now', 'localtime')
+        AND a.data >= date('now', 'localtime', '-90 days')
+        AND a.status IN ('agendado', 'presente', 'em_atendimento')`;
+    const params: unknown[] = [];
+    if (medicoId) {
+      sql += ` AND a.medico_id = ?`;
+      params.push(medicoId);
+    }
+    sql += ` GROUP BY a.data ORDER BY a.data DESC LIMIT 60`;
+    const dias = getDb().prepare(sql).all(...params) as { data: string }[];
+    // Quem tem pendência em cada dia: a tela troca o filtro de médico sozinha ao clicar.
+    let sqlMed = `
+      SELECT a.data, a.medico_id, u.nome AS medico_nome, COUNT(*) AS total
+      FROM agendamentos a
+      JOIN usuarios u ON u.id = a.medico_id
+      WHERE a.data < date('now', 'localtime')
+        AND a.data >= date('now', 'localtime', '-90 days')
+        AND a.status IN ('agendado', 'presente', 'em_atendimento')`;
+    if (medicoId) sqlMed += ` AND a.medico_id = ?`;
+    sqlMed += ` GROUP BY a.data, a.medico_id ORDER BY u.nome COLLATE NOCASE`;
+    const porMedico = getDb().prepare(sqlMed).all(...params) as {
+      data: string;
+      medico_id: number;
+      medico_nome: string;
+      total: number;
+    }[];
+    res.json(
+      dias.map((d) => ({
+        ...d,
+        medicos: porMedico
+          .filter((m) => m.data === d.data)
+          .map((m) => ({ id: m.medico_id, nome: m.medico_nome, total: m.total })),
+      })),
+    );
+  }),
+);
+
 agendamentosRouter.get(
   "/resumo",
   asyncHandler(async (req, res) => {

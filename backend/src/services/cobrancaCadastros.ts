@@ -134,9 +134,16 @@ export function criarConvenio(
       `INSERT INTO convenios (nome, tipo, ativo, exige_guia) VALUES (?, ?, 1, ?)`,
     )
     .run(nome.trim(), tipo, exigeGuia ? 1 : 0);
+  const convenioId = Number(info.lastInsertRowid);
+  // Igual ao procedimento novo: o convênio nasce com preço 0 em todos os
+  // procedimentos ativos (ex.: Consulta retorno gratuita já funciona).
+  db.prepare(
+    `INSERT OR IGNORE INTO procedimento_precos (procedimento_id, convenio_id, valor_centavos, vigencia_inicio)
+     SELECT id, ?, 0, date('now', 'localtime') FROM procedimentos WHERE ativo = 1`,
+  ).run(convenioId);
   return db
     .prepare(`SELECT id, nome, tipo, ativo, exige_guia FROM convenios WHERE id = ?`)
-    .get(Number(info.lastInsertRowid)) as ConvenioRow;
+    .get(convenioId) as ConvenioRow;
 }
 
 export function convenioExigeGuia(
@@ -179,6 +186,36 @@ export function atualizarConvenio(
     const nome = dados.nome?.trim() || atual.nome;
     const tipo = dados.tipo ?? atual.tipo;
     const ativo = dados.ativo ?? atual.ativo;
+    if (ativo === 0 && atual.ativo === 1) {
+      // Auditoria 26/11 [8]: desativar com horário marcado travava o check-in no dia.
+      const futuros = (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM agendamentos
+             WHERE convenio_id = ? AND data >= date('now', 'localtime')
+               AND status IN ('agendado', 'presente', 'em_atendimento')`,
+          )
+          .get(id) as { n: number }
+      ).n;
+      if (futuros > 0) {
+        throw new Error(
+          `Não dá para desativar: há ${futuros} horário(s) de hoje em diante com este convênio. Troque o convênio desses horários antes.`,
+        );
+      }
+      const abertas = (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM contas_atendimento
+             WHERE convenio_id = ? AND status = 'em_aberto'`,
+          )
+          .get(id) as { n: number }
+      ).n;
+      if (abertas > 0) {
+        throw new Error(
+          `Não dá para desativar: há ${abertas} conta(s) em aberto com este convênio. Feche ou troque o convênio delas antes.`,
+        );
+      }
+    }
     const exigeGuia =
       dados.exige_guia !== undefined ? (dados.exige_guia ? 1 : 0) : atual.exige_guia;
     db.prepare(

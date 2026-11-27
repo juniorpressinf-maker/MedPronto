@@ -47,7 +47,7 @@ import {
 } from "../services/agendamentoAtendimento.js";
 import { tentarPreparoZapAposEdicao } from "../services/whatsappService.js";
 import { requireAdmin } from "../auth/middleware.js";
-import { obterCaixaDoDia } from "../services/cobrancaCaixa.js";
+import { listarPendentesAnteriores, obterCaixaDoDia } from "../services/cobrancaCaixa.js";
 import { obterRelatorioCobranca } from "../services/cobrancaRelatorios.js";
 import { obterFaturamentoConvenio } from "../services/cobrancaFaturamentoConvenio.js";
 import {
@@ -195,9 +195,8 @@ cobrancaRouter.delete(
     try {
       res.json(atualizarConvenio(id, { ativo: 0 }));
     } catch (e) {
-      res.status(404).json({
-        error: e instanceof Error ? e.message : "Convênio não encontrado",
-      });
+      const msg = e instanceof Error ? e.message : "Convênio não encontrado";
+      res.status(/não encontrado/i.test(msg) ? 404 : 400).json({ error: msg });
     }
   }),
 );
@@ -373,6 +372,7 @@ const receberConvenioBody = z.object({
   data_recebimento: z.string().max(10).optional(),
   valor_centavos: z.number().int().positive().optional(),
   observacao: z.string().max(500).optional(),
+  motivo_glosa: z.string().max(500).optional(),
 });
 
 const receberConvenioLoteBody = z.object({
@@ -567,6 +567,19 @@ cobrancaRouter.get(
       return;
     }
     res.json(obterCaixaDoDia(data));
+  }),
+);
+
+// Contas em aberto de dias anteriores à data (aba "Pendências de outros dias").
+cobrancaRouter.get(
+  "/pendencias-anteriores",
+  requireModulo("cobranca"),
+  asyncHandler(async (req, res) => {
+    const q = String(req.query.data ?? "").trim();
+    const hoje = new Date();
+    const hojeIso = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-${String(hoje.getDate()).padStart(2, "0")}`;
+    const data = /^\d{4}-\d{2}-\d{2}$/.test(q) ? q : hojeIso;
+    res.json(listarPendentesAnteriores(data));
   }),
 );
 

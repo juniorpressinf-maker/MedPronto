@@ -405,84 +405,176 @@ function New-MedProntoProgress {
         [int]$TotalSteps = 6
     )
 
-    Add-Type -AssemblyName System.Windows.Forms
-    Add-Type -AssemblyName System.Drawing
-    try { [System.Windows.Forms.Application]::EnableVisualStyles() } catch { }
-
-    $form = New-Object System.Windows.Forms.Form
-    $form.Text = $Title
-    $form.Size = New-Object System.Drawing.Size(560, 268)
-    $form.StartPosition = 'CenterScreen'
-    $form.FormBorderStyle = 'FixedDialog'
-    $form.MaximizeBox = $false
-    $form.MinimizeBox = $true
-    $form.TopMost = $false
-    $form.ControlBox = $true
-    $form.ShowInTaskbar = $true
-    $form.BackColor = [System.Drawing.Color]::White
-    # Permite minimizar, mas bloqueia o X (so fecha via Close-MedProntoProgress)
-    $form.Add_FormClosing({
-        param($s, $e)
-        if ($s.Tag -ne 'fechar') { $e.Cancel = $true }
+    # A janela roda numa thread propria (STA) com laco de mensagens proprio.
+    # Antes ela dividia a thread com o script: durante uma etapa longa (copia, npm,
+    # compilacao) ninguem processava os cliques, e minimizar/restaurar/arrastar travava
+    # (minimizada, nao voltava mais). Agora o script so escreve no $estado e um timer
+    # da propria janela aplica as mudancas.
+    $estado = [hashtable]::Synchronized(@{
+        Title    = $Title
+        Total    = $TotalSteps
+        Step     = 'Preparando...'
+        Detail   = 'Aguarde — nao feche esta janela.'
+        Pct      = "Passo 0 de $TotalSteps"
+        Value    = 0
+        Marquee  = $false
+        Versao   = 1
+        Aplicada = 0
+        Fechar   = $false
+        Pronta   = $false
+        Erro     = $null
     })
 
-    $header = New-Object System.Windows.Forms.Panel
-    $header.Location = New-Object System.Drawing.Point(0, 0)
-    $header.Size = New-Object System.Drawing.Size(560, 52)
-    $header.BackColor = [System.Drawing.Color]::FromArgb(15, 118, 110)
-    $form.Controls.Add($header)
+    $rs = $null
+    $ps = $null
+    try {
+        $rs = [runspacefactory]::CreateRunspace()
+        $rs.ApartmentState = 'STA'
+        $rs.ThreadOptions = 'ReuseThread'
+        $rs.Open()
+        $rs.SessionStateProxy.SetVariable('estado', $estado)
 
-    $lblBrand = New-Object System.Windows.Forms.Label
-    $lblBrand.Location = New-Object System.Drawing.Point(20, 14)
-    $lblBrand.Size = New-Object System.Drawing.Size(520, 26)
-    $lblBrand.ForeColor = [System.Drawing.Color]::White
-    $lblBrand.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
-    $lblBrand.Text = $Title
-    $header.Controls.Add($lblBrand)
+        $ps = [powershell]::Create()
+        $ps.Runspace = $rs
+        [void]$ps.AddScript({
+            try {
+                Add-Type -AssemblyName System.Windows.Forms
+                Add-Type -AssemblyName System.Drawing
+                try { [System.Windows.Forms.Application]::EnableVisualStyles() } catch { }
 
-    $lblStep = New-Object System.Windows.Forms.Label
-    $lblStep.Location = New-Object System.Drawing.Point(20, 66)
-    $lblStep.Size = New-Object System.Drawing.Size(510, 40)
-    $lblStep.Font = New-Object System.Drawing.Font('Segoe UI', 10.5, [System.Drawing.FontStyle]::Regular)
-    $lblStep.Text = 'Preparando...'
-    $form.Controls.Add($lblStep)
+                $form = New-Object System.Windows.Forms.Form
+                $form.Text = $estado.Title
+                $form.Size = New-Object System.Drawing.Size(560, 268)
+                $form.StartPosition = 'CenterScreen'
+                $form.FormBorderStyle = 'FixedDialog'
+                $form.MaximizeBox = $false
+                $form.MinimizeBox = $true
+                $form.TopMost = $false
+                $form.ControlBox = $true
+                $form.ShowInTaskbar = $true
+                $form.BackColor = [System.Drawing.Color]::White
+                # Permite minimizar, mas bloqueia o X (so fecha via Close-MedProntoProgress)
+                $form.Add_FormClosing({
+                    param($s, $e)
+                    if ($s.Tag -ne 'fechar') { $e.Cancel = $true }
+                })
 
-    $lblDetail = New-Object System.Windows.Forms.Label
-    $lblDetail.Location = New-Object System.Drawing.Point(20, 110)
-    $lblDetail.Size = New-Object System.Drawing.Size(510, 36)
-    $lblDetail.ForeColor = [System.Drawing.Color]::FromArgb(90, 90, 90)
-    $lblDetail.Font = New-Object System.Drawing.Font('Segoe UI', 9)
-    $lblDetail.Text = 'Aguarde — nao feche esta janela.'
-    $form.Controls.Add($lblDetail)
+                $header = New-Object System.Windows.Forms.Panel
+                $header.Location = New-Object System.Drawing.Point(0, 0)
+                $header.Size = New-Object System.Drawing.Size(560, 52)
+                $header.BackColor = [System.Drawing.Color]::FromArgb(15, 118, 110)
+                $form.Controls.Add($header)
 
-    $bar = New-Object System.Windows.Forms.ProgressBar
-    $bar.Location = New-Object System.Drawing.Point(20, 156)
-    $bar.Size = New-Object System.Drawing.Size(510, 22)
-    $bar.Minimum = 0
-    $bar.Maximum = $TotalSteps
-    $bar.Value = 0
-    $bar.Style = 'Continuous'
-    $form.Controls.Add($bar)
+                $lblBrand = New-Object System.Windows.Forms.Label
+                $lblBrand.Location = New-Object System.Drawing.Point(20, 14)
+                $lblBrand.Size = New-Object System.Drawing.Size(520, 26)
+                $lblBrand.ForeColor = [System.Drawing.Color]::White
+                $lblBrand.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
+                $lblBrand.Text = $estado.Title
+                $header.Controls.Add($lblBrand)
 
-    $lblPct = New-Object System.Windows.Forms.Label
-    $lblPct.Location = New-Object System.Drawing.Point(20, 186)
-    $lblPct.Size = New-Object System.Drawing.Size(510, 22)
-    $lblPct.ForeColor = [System.Drawing.Color]::FromArgb(110, 110, 110)
-    $lblPct.Font = New-Object System.Drawing.Font('Segoe UI', 8.5)
-    $lblPct.Text = 'Passo 0 de ' + $TotalSteps
-    $form.Controls.Add($lblPct)
+                $lblStep = New-Object System.Windows.Forms.Label
+                $lblStep.Location = New-Object System.Drawing.Point(20, 66)
+                $lblStep.Size = New-Object System.Drawing.Size(510, 40)
+                $lblStep.Font = New-Object System.Drawing.Font('Segoe UI', 10.5, [System.Drawing.FontStyle]::Regular)
+                $lblStep.Text = $estado.Step
+                $form.Controls.Add($lblStep)
 
-    $form.Add_Shown({ $form.Activate() })
-    $form.Show()
-    [System.Windows.Forms.Application]::DoEvents()
+                $lblDetail = New-Object System.Windows.Forms.Label
+                $lblDetail.Location = New-Object System.Drawing.Point(20, 110)
+                $lblDetail.Size = New-Object System.Drawing.Size(510, 36)
+                $lblDetail.ForeColor = [System.Drawing.Color]::FromArgb(90, 90, 90)
+                $lblDetail.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+                $lblDetail.Text = $estado.Detail
+                $form.Controls.Add($lblDetail)
 
-    return @{
-        Form       = $form
-        StepLabel  = $lblStep
-        DetailLabel = $lblDetail
-        Bar        = $bar
-        PctLabel   = $lblPct
-        Total      = $TotalSteps
+                $bar = New-Object System.Windows.Forms.ProgressBar
+                $bar.Location = New-Object System.Drawing.Point(20, 156)
+                $bar.Size = New-Object System.Drawing.Size(510, 22)
+                $bar.Minimum = 0
+                $bar.Maximum = [Math]::Max(1, [int]$estado.Total)
+                $bar.Value = 0
+                $bar.Style = 'Continuous'
+                $form.Controls.Add($bar)
+
+                $lblPct = New-Object System.Windows.Forms.Label
+                $lblPct.Location = New-Object System.Drawing.Point(20, 186)
+                $lblPct.Size = New-Object System.Drawing.Size(510, 22)
+                $lblPct.ForeColor = [System.Drawing.Color]::FromArgb(110, 110, 110)
+                $lblPct.Font = New-Object System.Drawing.Font('Segoe UI', 8.5)
+                $lblPct.Text = $estado.Pct
+                $form.Controls.Add($lblPct)
+
+                $timer = New-Object System.Windows.Forms.Timer
+                $timer.Interval = 150
+                $timer.Add_Tick({
+                    try {
+                        if ($estado.Fechar) {
+                            $timer.Stop()
+                            $form.Tag = 'fechar'
+                            $form.Close()
+                            return
+                        }
+                        $v = $estado.Versao
+                        if ($v -eq $estado.Aplicada) { return }
+                        $lblStep.Text = [string]$estado.Step
+                        $lblDetail.Text = [string]$estado.Detail
+                        $lblPct.Text = [string]$estado.Pct
+                        if ($estado.Marquee) {
+                            if ($bar.Style -ne [System.Windows.Forms.ProgressBarStyle]::Marquee) {
+                                $bar.Style = [System.Windows.Forms.ProgressBarStyle]::Marquee
+                                $bar.MarqueeAnimationSpeed = 30
+                            }
+                        } else {
+                            if ($bar.Style -ne [System.Windows.Forms.ProgressBarStyle]::Continuous) {
+                                $bar.Style = [System.Windows.Forms.ProgressBarStyle]::Continuous
+                                $bar.MarqueeAnimationSpeed = 0
+                            }
+                            $val = [int]$estado.Value
+                            if ($val -lt $bar.Minimum) { $val = $bar.Minimum }
+                            if ($val -gt $bar.Maximum) { $val = $bar.Maximum }
+                            $bar.Value = $val
+                        }
+                        $estado.Aplicada = $v
+                    } catch { }
+                })
+
+                $form.Add_Shown({
+                    $form.Activate()
+                    $timer.Start()
+                    $estado.Pronta = $true
+                })
+                [System.Windows.Forms.Application]::Run($form)
+                try { $timer.Dispose() } catch { }
+                try { $form.Dispose() } catch { }
+            } catch {
+                $estado.Erro = $_.Exception.Message
+            }
+        })
+        $handle = $ps.BeginInvoke()
+
+        $t0 = Get-Date
+        while (-not $estado.Pronta -and -not $estado.Erro -and -not $handle.IsCompleted -and ((Get-Date) - $t0).TotalSeconds -lt 15) {
+            Start-Sleep -Milliseconds 50
+        }
+        if (-not $estado.Pronta) {
+            throw "janela nao abriu $($estado.Erro)"
+        }
+
+        return @{
+            Estado     = $estado
+            PowerShell = $ps
+            Runspace   = $rs
+            Handle     = $handle
+            Total      = $TotalSteps
+        }
+    } catch {
+        # Sem janela o processo continua (o andamento segue no console/log).
+        Write-Host "Janela de progresso indisponivel ($($_.Exception.Message)); o andamento segue neste console." -ForegroundColor Yellow
+        $estado.Fechar = $true
+        try { if ($ps) { $ps.Dispose() } } catch { }
+        try { if ($rs) { $rs.Dispose() } } catch { }
+        return $null
     }
 }
 
@@ -493,20 +585,18 @@ function Update-MedProntoProgress {
         [string]$Title,
         [string]$Detail = ''
     )
-    if (-not $Progress) { return }
+    if (-not $Progress -or -not $Progress.Estado) { return }
+    $est = $Progress.Estado
     $total = [int]$Progress.Total
     if ($Step -lt 0) { $Step = 0 }
     if ($Step -gt $total) { $Step = $total }
-    try {
-        $Progress.Bar.Style = [System.Windows.Forms.ProgressBarStyle]::Continuous
-        $Progress.Bar.MarqueeAnimationSpeed = 0
-    } catch { }
-    $Progress.StepLabel.Text = "[$Step/$total] $Title"
-    if ($Detail) { $Progress.DetailLabel.Text = $Detail }
-    $Progress.Bar.Value = $Step
+    $est.Marquee = $false
+    $est.Step = "[$Step/$total] $Title"
+    if ($Detail) { $est.Detail = $Detail }
+    $est.Value = $Step
     $pct = if ($total -gt 0) { [int][math]::Round(100 * $Step / $total) } else { 0 }
-    $Progress.PctLabel.Text = "Passo $Step de $total ($pct%)"
-    [System.Windows.Forms.Application]::DoEvents()
+    $est.Pct = "Passo $Step de $total ($pct%)"
+    $est.Versao = [int]$est.Versao + 1
 }
 
 function Set-MedProntoProgressBusy {
@@ -515,33 +605,39 @@ function Set-MedProntoProgressBusy {
         [string]$Title,
         [string]$Detail = 'Aguarde — nao feche esta janela.'
     )
-    if (-not $Progress) { return }
-    $Progress.StepLabel.Text = $Title
-    if ($Detail) { $Progress.DetailLabel.Text = $Detail }
-    $Progress.PctLabel.Text = 'Em andamento...'
-    try {
-        $Progress.Bar.Style = [System.Windows.Forms.ProgressBarStyle]::Marquee
-        $Progress.Bar.MarqueeAnimationSpeed = 30
-    } catch { }
-    [System.Windows.Forms.Application]::DoEvents()
+    if (-not $Progress -or -not $Progress.Estado) { return }
+    $est = $Progress.Estado
+    $est.Step = $Title
+    if ($Detail) { $est.Detail = $Detail }
+    $est.Pct = 'Em andamento...'
+    $est.Marquee = $true
+    $est.Versao = [int]$est.Versao + 1
 }
 
 function Set-MedProntoProgressDetail {
     param($Progress, [string]$Detail)
-    if (-not $Progress) { return }
+    if (-not $Progress -or -not $Progress.Estado) { return }
     $text = $Detail
     if ($text.Length -gt 90) { $text = '...' + $text.Substring($text.Length - 87) }
-    $Progress.DetailLabel.Text = $text
-    [System.Windows.Forms.Application]::DoEvents()
+    $Progress.Estado.Detail = $text
+    $Progress.Estado.Versao = [int]$Progress.Estado.Versao + 1
 }
 
 function Close-MedProntoProgress {
     param($Progress)
-    if ($Progress -and $Progress.Form) {
-        $Progress.Form.Tag = 'fechar'
-        $Progress.Form.Close()
-        $Progress.Form.Dispose()
+    if (-not $Progress -or -not $Progress.Estado) { return }
+    if ($Progress.Fechada) { return }
+    $Progress.Fechada = $true
+    $Progress.Estado.Fechar = $true
+    $t0 = Get-Date
+    while ($Progress.Handle -and -not $Progress.Handle.IsCompleted -and ((Get-Date) - $t0).TotalSeconds -lt 5) {
+        Start-Sleep -Milliseconds 50
     }
+    try {
+        if ($Progress.Handle -and $Progress.Handle.IsCompleted) { [void]$Progress.PowerShell.EndInvoke($Progress.Handle) }
+    } catch { }
+    try { $Progress.PowerShell.Dispose() } catch { }
+    try { $Progress.Runspace.Dispose() } catch { }
 }
 
 function Invoke-ProcessWithUiPulse {

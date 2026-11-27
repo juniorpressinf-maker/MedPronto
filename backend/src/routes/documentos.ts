@@ -27,6 +27,7 @@ import {
   ocultarVariacaoPrescricao,
   registrarUsoDocumentos,
 } from "../services/catalogoNomes.js";
+import { carregarCorrecoesExame, salvarCorrecaoExame } from "../services/exameCategoria.js";
 import {
   gerarDocumentosLotePdf,
   listarDocumentosLote,
@@ -60,6 +61,8 @@ const atestadoBodySchema = z.object({
 const pedidoBodySchema = z.object({
   exames_solicitados: z.string().min(1).max(8000),
   observacoes: z.string().max(2000).optional().nullable(),
+  /** Indicação só da folha de imagem (vazia: usa `observacoes`). */
+  observacoes_imagem: z.string().max(2000).optional().nullable(),
   cid_codigo: z.string().max(10).optional().nullable(),
   cid_descricao: z.string().max(500).optional().nullable(),
 });
@@ -205,6 +208,29 @@ documentosRouter.post(
       .parse(req.body);
     ocultarVariacaoPrescricao(pr.medico_id, body.nome, body.assinatura);
     res.json({ ok: true });
+  }),
+);
+
+/** Categoria (laboratório / imagem) que o médico corrigiu por exame: o pedido sai em folhas. */
+documentosRouter.get(
+  "/pedido-exame/categorias",
+  requireModulo("documentos", "prontuario_ler"),
+  asyncHandler(async (req, res) => {
+    getProntuarioOrThrow(Number(req.params.prontuarioId), req);
+    res.json({ correcoes: carregarCorrecoesExame() });
+  }),
+);
+
+documentosRouter.put(
+  "/pedido-exame/categorias",
+  requireModulo("documentos"),
+  asyncHandler(async (req, res) => {
+    getProntuarioOrThrow(Number(req.params.prontuarioId), req);
+    const body = z
+      .object({ nome: z.string().min(1).max(300), categoria: z.enum(["lab", "imagem"]) })
+      .parse(req.body);
+    salvarCorrecaoExame(body.nome, body.categoria, req.usuario?.id ?? null);
+    res.json({ correcoes: carregarCorrecoesExame() });
   }),
 );
 
@@ -378,24 +404,28 @@ documentosRouter.put(
     db.transaction(() => {
       if (existing) {
         db.prepare(
-          `UPDATE pedidos_exame SET exames_solicitados = ?, observacoes = ?, cid_codigo = ?, cid_descricao = ? WHERE id = ?`,
+          `UPDATE pedidos_exame SET exames_solicitados = ?, observacoes = ?, observacoes_imagem = ?,
+           cid_codigo = ?, cid_descricao = ? WHERE id = ?`,
         ).run(
           body.exames_solicitados,
           body.observacoes ?? null,
+          body.observacoes_imagem?.trim() || null,
           body.cid_codigo?.trim() || null,
           body.cid_descricao?.trim() || null,
           existing.id,
         );
       } else {
         db.prepare(
-          `INSERT INTO pedidos_exame (prontuario_id, paciente_id, medico_id, exames_solicitados, observacoes, cid_codigo, cid_descricao)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO pedidos_exame (prontuario_id, paciente_id, medico_id, exames_solicitados, observacoes,
+           observacoes_imagem, cid_codigo, cid_descricao)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           prontuarioId,
           pr.paciente_id,
           pr.medico_id,
           body.exames_solicitados,
           body.observacoes ?? null,
+          body.observacoes_imagem?.trim() || null,
           body.cid_codigo?.trim() || null,
           body.cid_descricao?.trim() || null,
         );
@@ -423,7 +453,13 @@ documentosRouter.get(
     const pedido = getDb()
       .prepare(`SELECT * FROM pedidos_exame WHERE prontuario_id = ? ORDER BY id DESC LIMIT 1`)
       .get(prontuarioId) as
-      | { exames_solicitados: string; observacoes: string | null; cid_codigo: string | null; cid_descricao: string | null }
+      | {
+          exames_solicitados: string;
+          observacoes: string | null;
+          observacoes_imagem: string | null;
+          cid_codigo: string | null;
+          cid_descricao: string | null;
+        }
       | undefined;
     if (!pedido?.exames_solicitados?.trim()) {
       res.status(400).json({ error: "Salve o pedido de exame antes de gerar o PDF" });
@@ -434,6 +470,8 @@ documentosRouter.get(
       pedido.exames_solicitados,
       pedido.observacoes,
       { codigo: pedido.cid_codigo, descricao: pedido.cid_descricao },
+      carregarCorrecoesExame(),
+      pedido.observacoes_imagem,
     );
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(

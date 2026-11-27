@@ -85,7 +85,9 @@ export function CobrancaCaixaPage() {
               </div>
               <div className="dup-resumo-card dup-resumo--paga dup-resumo-card--com-datas">
                 <div className="dup-resumo-card__corpo">
-                  <div className="dup-resumo-card__label">Arrecadado</div>
+                  <div className="dup-resumo-card__label" title="Pagamentos registrados nesta data, de qualquer conta">
+                    Recebido no dia
+                  </div>
                   <div className="dup-resumo-card__valor">
                     {formatBRL(caixa.totais.arrecadado_centavos)}
                   </div>
@@ -136,6 +138,105 @@ export function CobrancaCaixaPage() {
                         </td>
                       </tr>
                     </tfoot>
+                  </table>
+                </div>
+              </section>
+            ) : null}
+
+            {caixa.recebidos_outros_dias && caixa.recebidos_outros_dias.length > 0 ? (
+              <section>
+                <h4 className="m-0 text-sm font-semibold mb-1">
+                  Recebido neste dia de contas de outras datas
+                </h4>
+                <p className="m-0 mb-2 text-xs text-[var(--muted)]">
+                  Já somado em "Recebido no dia" e nos totais por forma.
+                </p>
+                <div className="dup-table-wrap">
+                  <table className="data-table data-table--compact">
+                    <thead>
+                      <tr>
+                        <th>Conta de</th>
+                        <th>Paciente</th>
+                        <th>Forma</th>
+                        <th className="text-right">Valor</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {caixa.recebidos_outros_dias.map((r) => (
+                        <tr key={r.pagamento_id}>
+                          <td className="whitespace-nowrap">{formatDataBr(r.conta_data)}</td>
+                          <td>{r.paciente_nome}</td>
+                          <td>{labelFormaPagamento(r.forma)}</td>
+                          <td className="text-right font-semibold whitespace-nowrap">
+                            {formatBRL(r.valor_centavos)}
+                          </td>
+                          <td>
+                            <Link
+                              to={linkCobrancaConta(r.conta_id, returnPath, "Voltar ao caixa")}
+                              className="btn btn-secondary btn-sm no-underline"
+                            >
+                              Mostrar
+                            </Link>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ) : null}
+
+            {caixa.pendentes_anteriores && caixa.pendentes_anteriores.length > 0 ? (
+              <section className="rounded border border-amber-300 bg-amber-50 p-3">
+                <h4 className="m-0 text-sm font-semibold mb-1 text-amber-900">
+                  Pendentes de dias anteriores ({caixa.pendentes_anteriores.length})
+                </h4>
+                <p className="m-0 mb-2 text-xs text-amber-900">
+                  Contas que ficaram em aberto — receba, fature o convênio ou isente para fechar.
+                </p>
+                <div className="dup-table-wrap">
+                  <table className="data-table data-table--compact">
+                    <thead>
+                      <tr>
+                        <th>Data</th>
+                        <th>Paciente</th>
+                        <th>Procedimentos</th>
+                        <th>Convênio</th>
+                        <th className="text-right">Saldo</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {caixa.pendentes_anteriores.map((p) => (
+                        <tr key={p.id}>
+                          <td className="whitespace-nowrap">
+                            {formatDataBr(p.data)} {labelHoraConta(p.agendamento_hora)}
+                          </td>
+                          <td>
+                            {p.paciente_nome}
+                            {p.sem_preco ? (
+                              <span className="block text-xs text-amber-900">
+                                Procedimento sem preço
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="text-sm">{p.procedimentos_nomes || "—"}</td>
+                          <td>{p.convenio_nome ?? "—"}</td>
+                          <td className="text-right font-medium text-amber-800 whitespace-nowrap">
+                            {formatBRL(p.saldo_pendente_centavos)}
+                          </td>
+                          <td>
+                            <Link
+                              to={linkCobrancaConta(p.id, returnPath, "Voltar ao caixa")}
+                              className={classeBotaoContaAgendamento("em_aberto", "no-underline")}
+                            >
+                              Mostrar
+                            </Link>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
                   </table>
                 </div>
               </section>

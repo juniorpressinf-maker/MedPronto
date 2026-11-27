@@ -657,6 +657,16 @@ export function AtendimentoPage() {
                   />
                 </div>
                 <div className="prontuario-linha">
+                  <span className="prontuario-linha__rotulo">Mãe:</span>
+                  <input
+                    type="text"
+                    readOnly
+                    tabIndex={-1}
+                    className="prontuario-linha__valor prontuario-linha__input"
+                    value={campoPaciente(pr.paciente_mae)}
+                  />
+                </div>
+                <div className="prontuario-linha">
                   <span className="prontuario-linha__rotulo">CPF:</span>
                   <input
                     type="text"

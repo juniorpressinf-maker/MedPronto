@@ -20,6 +20,20 @@ export type CaixaContaResumo = {
   formas: { forma: string; valor_centavos: number }[];
 };
 
+/** Auditoria 26/11 [5]: conta em aberto de dia anterior (paciente saiu sem pagar/fechar). */
+export type CaixaPendenteAnterior = {
+  id: number;
+  data: string;
+  paciente_id: number;
+  paciente_nome: string;
+  convenio_nome: string | null;
+  agendamento_hora: string | null;
+  agendamento_status: string | null;
+  procedimentos_nomes: string;
+  saldo_pendente_centavos: number;
+  sem_preco: boolean;
+};
+
 export type CaixaDoDia = {
   data: string;
   totais: {
@@ -34,7 +48,53 @@ export type CaixaDoDia = {
   };
   por_forma: { forma: string; valor_centavos: number }[];
   contas: CaixaContaResumo[];
+  /** Contas ainda em aberto de dias anteriores — não podem sumir da recepção. */
+  pendentes_anteriores: CaixaPendenteAnterior[];
+  /** Pagamentos registrados neste dia em contas de OUTRA data (entram no arrecadado do dia). */
+  recebidos_outros_dias: CaixaRecebidoOutroDia[];
 };
+
+export type CaixaRecebidoOutroDia = {
+  pagamento_id: number;
+  conta_id: number;
+  conta_data: string;
+  paciente_nome: string;
+  forma: string;
+  valor_centavos: number;
+};
+
+export function listarPendentesAnteriores(
+  data: string,
+  db: Database = getDb(),
+): CaixaPendenteAnterior[] {
+  const ids = db
+    .prepare(
+      `SELECT c.id FROM contas_atendimento c
+       WHERE c.data < ? AND c.status = 'em_aberto'
+         AND EXISTS (
+           SELECT 1 FROM conta_itens ci
+           WHERE ci.conta_id = c.id AND ci.status IN ('previsto', 'solicitado', 'realizado')
+         )
+       ORDER BY c.data DESC, c.id DESC
+       LIMIT 200`,
+    )
+    .all(data) as { id: number }[];
+  return ids.map(({ id }) => {
+    const det = obterContaDetalhe(id, db);
+    return {
+      id: det.id,
+      data: det.data,
+      paciente_id: det.paciente_id,
+      paciente_nome: det.paciente_nome ?? "—",
+      convenio_nome: det.convenio_nome ?? null,
+      agendamento_hora: det.agendamento_hora ?? null,
+      agendamento_status: det.agendamento_status ?? null,
+      procedimentos_nomes: (det.procedimentos_nomes ?? "").trim(),
+      saldo_pendente_centavos: det.saldo_pendente_centavos,
+      sem_preco: det.procedimentos_sem_preco.length > 0,
+    };
+  });
+}
 
 const STATUS_FECHADO = new Set([
   "pago",
@@ -92,23 +152,38 @@ export function obterCaixaDoDia(
       fechadas++;
     }
 
-    arrecadado += det.total_pago_centavos;
     if (det.status === "a_faturar_convenio") {
       aFaturarQtd++;
       aFaturar += det.total_liquido_centavos;
     }
   }
 
+  // Auditoria 26/11 [6]: dinheiro do dia = pagamentos REGISTRADOS no dia (mesmo critério do
+  // Caixa do Financeiro, relatórios e dashboard). Antes somava pela data da conta e a
+  // conferência não batia quando se pagava hoje uma conta de outro dia.
   const porForma = db
     .prepare(
       `SELECT p.forma, COALESCE(SUM(p.valor_centavos), 0) AS valor_centavos
        FROM conta_pagamentos p
        JOIN contas_atendimento c ON c.id = p.conta_id
-       WHERE c.data = ? AND c.status != 'cancelada'
+       WHERE date(p.registrado_em) = ? AND c.status != 'cancelada'
        GROUP BY p.forma
        ORDER BY valor_centavos DESC`,
     )
     .all(data) as { forma: string; valor_centavos: number }[];
+  arrecadado = porForma.reduce((t, f) => t + f.valor_centavos, 0);
+
+  const recebidosOutrosDias = db
+    .prepare(
+      `SELECT p.id AS pagamento_id, c.id AS conta_id, c.data AS conta_data,
+              pac.nome AS paciente_nome, p.forma, p.valor_centavos
+       FROM conta_pagamentos p
+       JOIN contas_atendimento c ON c.id = p.conta_id
+       JOIN pacientes pac ON pac.id = c.paciente_id
+       WHERE date(p.registrado_em) = ? AND c.data != ? AND c.status != 'cancelada'
+       ORDER BY p.registrado_em, p.id`,
+    )
+    .all(data, data) as CaixaRecebidoOutroDia[];
 
   return {
     data,
@@ -124,5 +199,7 @@ export function obterCaixaDoDia(
     },
     por_forma: porForma,
     contas,
+    pendentes_anteriores: listarPendentesAnteriores(data, db),
+    recebidos_outros_dias: recebidosOutrosDias,
   };
 }

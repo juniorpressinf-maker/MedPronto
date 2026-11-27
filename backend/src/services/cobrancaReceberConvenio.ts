@@ -16,6 +16,7 @@ import {
 
 export const FORMA_REPASSE_CONVENIO = "repasse_convenio" as const;
 
+/** A receber do convênio = líquido − o que o paciente já pagou (ex.: coparticipação). */
 const SQL_LIQUIDO_CONTA = `MAX(0,
   COALESCE((
     SELECT SUM(ci.valor_centavos * ci.quantidade)
@@ -23,6 +24,7 @@ const SQL_LIQUIDO_CONTA = `MAX(0,
     WHERE ci.conta_id = c.id
       AND ci.status IN ('previsto', 'solicitado', 'realizado')
   ), 0) - COALESCE(c.valor_desconto_centavos, 0)
+  - COALESCE((SELECT SUM(cp.valor_centavos) FROM conta_pagamentos cp WHERE cp.conta_id = c.id), 0)
 )`;
 
 function assertPeriodo(de: string, ate: string): void {
@@ -33,8 +35,12 @@ function assertPeriodo(de: string, ate: string): void {
 }
 
 function assertDataRecebimento(data: string): void {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || Number.isNaN(Date.parse(`${data}T12:00:00`))) {
     throw new Error("Data de recebimento inválida (use AAAA-MM-DD)");
+  }
+  // Auditoria 26/11: data futura mudaria o saldo de caixa de dias que ainda não aconteceram.
+  if (data > hojeIsoLocal()) {
+    throw new Error("Data de recebimento não pode ser futura");
   }
 }
 
@@ -210,6 +216,8 @@ export function receberConvenio(
     data_recebimento?: string;
     valor_centavos?: number;
     observacao?: string;
+    /** Obrigatório quando o convênio pagou menos que o saldo (glosa). */
+    motivo_glosa?: string;
   },
   usuarioId: number,
   db: Database = getDb(),
@@ -218,13 +226,28 @@ export function receberConvenio(
     const conta = getContaRow(contaId, db);
     assertContaPendenteRepasse(conta, db);
 
+    // Auditoria 26/11 [3]: o devido é o SALDO (líquido − o que o paciente já pagou,
+    // ex.: coparticipação). Antes a baixa padrão lançava o líquido inteiro (entrava em dobro).
     const detalhe = obterContaDetalhe(contaId, db);
-    const valor =
-      dados.valor_centavos != null
-        ? dados.valor_centavos
-        : detalhe.total_liquido_centavos;
+    const saldo = detalhe.saldo_pendente_centavos;
+    if (saldo <= 0) {
+      throw new Error("Esta conta não tem saldo a receber do convênio");
+    }
+    const valor = dados.valor_centavos != null ? dados.valor_centavos : saldo;
     if (!Number.isInteger(valor) || valor <= 0) {
       throw new Error("Valor recebido deve ser positivo");
+    }
+    const fmt = (c: number) =>
+      (c / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    if (valor > saldo) {
+      throw new Error(`Valor maior que o saldo a receber (${fmt(saldo)})`);
+    }
+    const glosa = saldo - valor;
+    const motivoGlosa = dados.motivo_glosa?.trim() ?? "";
+    if (glosa > 0 && motivoGlosa.length < 3) {
+      throw new Error(
+        `O convênio pagou ${fmt(glosa)} a menos — informe o motivo da glosa`,
+      );
     }
 
     const dataRecebimento =
@@ -246,14 +269,18 @@ export function receberConvenio(
     );
 
     db.prepare(
-      `UPDATE contas_atendimento SET status = 'pago' WHERE id = ?`,
-    ).run(contaId);
+      `UPDATE contas_atendimento
+       SET status = 'pago',
+           glosa_centavos = COALESCE(glosa_centavos, 0) + ?,
+           glosa_motivo = CASE WHEN ? > 0 THEN ? ELSE glosa_motivo END
+       WHERE id = ?`,
+    ).run(glosa, glosa, motivoGlosa.slice(0, 500) || null, contaId);
 
     logAcesso({
       usuarioId,
       pacienteId: conta.paciente_id,
       acao: "cobranca_baixa_convenio",
-      detalhe: `conta=${contaId} valor=${valor} data=${dataRecebimento}`,
+      detalhe: `conta=${contaId} valor=${valor} data=${dataRecebimento}${glosa > 0 ? ` glosa=${glosa} motivo=${motivoGlosa.slice(0, 300)}` : ""}`,
     });
 
     return obterContaDetalhe(contaId, db);

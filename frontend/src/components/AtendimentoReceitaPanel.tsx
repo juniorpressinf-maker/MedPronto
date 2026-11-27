@@ -7,6 +7,7 @@ import { ApiError, PdfCancelado, api, type ReceitaItem, type VariacaoPrescricao 
 
 import { snapshotForm } from "../lib/formDirty";
 import { upperPrompt } from "../lib/upperPrompt";
+import { sugerirVia } from "../lib/classificacaoDocs";
 import { focarCampoInicial } from "../lib/focoInicial";
 import { useAutoSalvar } from "../lib/useAutoSalvar";
 import { useMessageBox } from "../lib/messageBoxContext";
@@ -295,6 +296,20 @@ export function AtendimentoReceitaPanel({ prontuarioId, pacienteNome, somenteLei
     );
   };
 
+  /**
+   * Via vazia: sugere pelo nome/dose/posologia (POMADA → TÓPICA, GOTAS NO OUVIDO → OTOLÓGICA...).
+   * A receita sai agrupada por uso (USO ORAL, USO TÓPICO...) conforme este campo.
+   */
+  const completarVia = (idx: number) => {
+    setItens((prev) =>
+      prev.map((row, i) => {
+        if (i !== idx || (row.via ?? "").trim() || !row.medicamento.trim()) return row;
+        const via = sugerirVia(row.medicamento, row.dosagem, row.posologia);
+        return via ? { ...row, via } : row;
+      }),
+    );
+  };
+
   /** Escolheu o medicamento na lista: grava o nome e busca a memória do médico. */
   const escolherMedicamento = async (idx: number, nome: string) => {
     setItem(idx, { medicamento: nome });
@@ -306,6 +321,7 @@ export function AtendimentoReceitaPanel({ prontuarioId, pacienteNome, somenteLei
   const sairMedicamento = (idx: number, row: ReceitaItem, valor: string) => {
     const nome = valor.trim();
     if (nome) garantirLinhaNova();
+    if (nome) completarVia(idx);
     if (nome.length < 2 || memoria[idx]?.nome === nome) return;
     const vazia = !row.dosagem && !row.via && !row.posologia && !row.quantidade && row.duracao_dias == null;
     if (vazia) void buscarMemoria(idx, nome);
@@ -343,6 +359,8 @@ export function AtendimentoReceitaPanel({ prontuarioId, pacienteNome, somenteLei
     ].slice(0, 3);
     setMemoria((m) => (m[idx]?.nome === nome ? { ...m, [idx]: { nome, variacoes: todas } } : m));
     if (todas[0]) aplicarVariacao(idx, todas[0], false, nome);
+    // Memória sem via (ou remédio novo): sugere pelo texto.
+    completarVia(idx);
   };
 
   /** Variações excluídas (×) nesta tela, por medicamento — vale até o servidor responder. */
@@ -423,6 +441,7 @@ export function AtendimentoReceitaPanel({ prontuarioId, pacienteNome, somenteLei
                       readOnly={somenteLeitura}
                       placeholder="1 CP"
                       onChange={(e) => setItem(idx, { dosagem: e.target.value })}
+                      onBlur={() => completarVia(idx)}
                     />
                   </td>
                   <td>
@@ -430,6 +449,7 @@ export function AtendimentoReceitaPanel({ prontuarioId, pacienteNome, somenteLei
                       className="legacy-input w-full"
                       list={`receita-vias-${prontuarioId}`}
                       value={row.via ?? ""}
+                      title="Define o grupo na receita impressa (USO ORAL, USO TÓPICO...). Vazio: o sistema sugere."
                       readOnly={somenteLeitura}
                       onChange={(e) => setItem(idx, { via: e.target.value })}
                     />
@@ -441,6 +461,7 @@ export function AtendimentoReceitaPanel({ prontuarioId, pacienteNome, somenteLei
                       readOnly={somenteLeitura}
                       placeholder="DE 8/8 HORAS"
                       onChange={(e) => setItem(idx, { posologia: e.target.value })}
+                      onBlur={() => completarVia(idx)}
                     />
                   </td>
                   <td>

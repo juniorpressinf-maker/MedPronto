@@ -10,6 +10,7 @@ import {
   api,
   type AgendamentoRow,
   type MedicoRow,
+  type PendenciaDiaFila,
 } from "../lib/api";
 import { useAuth } from "../lib/authContext";
 import { useMessageBox } from "../lib/messageBoxContext";
@@ -257,6 +258,8 @@ export function FilaMedicoPage() {
   const [medicoId, setMedicoId] = useState<number | "">(medicoInicial);
   // Laudo dos exames: modo "finalizar" (Aguardando/Em atendimento) ou só ver/anexar (Finalizados).
   const [qtdLaudosPendentes, setQtdLaudosPendentes] = useState<number | null>(null);
+  /** Dias anteriores com horário sem desfecho (igual ao CliniCar). */
+  const [pendenciasDias, setPendenciasDias] = useState<PendenciaDiaFila[]>([]);
   const [dialogExames, setDialogExames] = useState<{
     agendamento: AgendamentoRow;
     finalizar: boolean;
@@ -304,6 +307,16 @@ export function FilaMedicoPage() {
 
   const mostrarMedico = podeFiltrarQualquerMedico && !medicoId;
 
+  /** Abre o dia da pendência; se o médico escolhido não tem pendência nesse dia,
+   *  troca o filtro para quem tem (um só) ou para Todos. */
+  const abrirPendencia = (p: PendenciaDiaFila) => {
+    const meds = p.medicos ?? [];
+    if (podeFiltrarQualquerMedico && medicoId && !meds.some((m) => m.id === Number(medicoId))) {
+      setMedicoId(meds.length === 1 ? meds[0]!.id : "");
+    }
+    setData(p.data);
+  };
+
   const carregar = useCallback(async () => {
     try {
       const filtro =
@@ -319,6 +332,12 @@ export function FilaMedicoPage() {
         .agendamentosExamesPendentes()
         .then((p) => setQtdLaudosPendentes(p.pendentes.length))
         .catch(() => setQtdLaudosPendentes(null));
+      void api
+        // Recepção vê as pendências da clínica toda (independe do médico escolhido);
+        // médico vê só as dele (o servidor também garante).
+        .agendamentosPendenciasDias(podeFiltrarQualquerMedico ? undefined : filtro)
+        .then(setPendenciasDias)
+        .catch(() => setPendenciasDias([]));
     } catch (e) {
       void msg.error(e instanceof ApiError ? e.message : "Erro na fila");
     }
@@ -491,6 +510,34 @@ export function FilaMedicoPage() {
           </div>
         }
       />
+      {pendenciasDias.length > 0 ? (
+        <div className="mx-4 mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-950">
+          <strong>Pendências de dias anteriores:</strong> horários que ficaram sem finalizar ou sem falta. Abra o dia e
+          finalize ou registre a falta.
+          <div className="mt-2 flex flex-wrap gap-2">
+            {pendenciasDias.map((p) => (
+              <button
+                key={p.data}
+                type="button"
+                className={`btn btn-sm${p.data === data ? " btn-primary" : " btn-secondary"}`}
+                title={`${p.na_sala} na sala sem finalizar · ${p.sem_desfecho} sem check-in/falta${
+                  p.medicos && p.medicos.length > 0
+                    ? `\n${p.medicos.map((m) => `${m.nome}: ${m.total}`).join("\n")}`
+                    : ""
+                }`}
+                onClick={() => abrirPendencia(p)}
+              >
+                {p.data.split("-").reverse().join("/")} ({p.total})
+                {podeFiltrarQualquerMedico && p.medicos && p.medicos.length > 0 ? (
+                  <span className="ml-1 font-normal opacity-80">
+                    · {p.medicos.map((m) => `${m.nome} ${m.total}`).join(", ")}
+                  </span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="fila-dia-board flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
         <Coluna
           etapa="agendado"

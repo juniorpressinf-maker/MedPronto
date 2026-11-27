@@ -16,7 +16,7 @@ export const pacientesRouter = Router();
 const CAMPOS_IDENTIDADE = ["nome", "data_nasc", "cpf", "telefone"] as const;
 const CAMPOS_AUDITADOS = [
   ...CAMPOS_IDENTIDADE,
-  "email", "endereco", "numero", "bairro", "cidade", "uf", "fone_emergencia",
+  "nome_mae", "email", "endereco", "numero", "bairro", "cidade", "uf", "fone_emergencia",
   "alergias", "medicacoes_uso", "observacoes_clinicas",
 ] as const;
 
@@ -58,6 +58,8 @@ const pacienteBody = z.object({
   nome: z.string().min(2).max(200),
   data_nasc: z.string().min(1, "Informe a data de nascimento").max(10),
   cpf: z.string().max(14).optional(),
+  /** Ausente/null = não mexe (telas que não têm o campo); "" apaga. */
+  nome_mae: z.string().max(200).nullable().optional(),
   telefone: z
     .string()
     .min(1, "Informe o telefone")
@@ -81,7 +83,7 @@ pacientesRouter.get(
   "/",
   asyncHandler(async (req, res) => {
     const q = String(req.query.q ?? "").trim();
-    let sql = `SELECT id, nome, data_nasc, cpf, telefone, email,
+    let sql = `SELECT id, nome, data_nasc, cpf, nome_mae, telefone, email,
                       endereco, numero, bairro, cidade, uf, fone_emergencia,
                       alergias, medicacoes_uso, observacoes_clinicas,
                       created_at, updated_at,
@@ -133,15 +135,16 @@ pacientesRouter.post(
     try {
       const info = db
         .prepare(
-          `INSERT INTO pacientes (nome, data_nasc, cpf, telefone, email,
+          `INSERT INTO pacientes (nome, data_nasc, cpf, nome_mae, telefone, email,
            endereco, numero, bairro, cidade, uf, fone_emergencia,
            alergias, medicacoes_uso, observacoes_clinicas)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           body.nome.trim(),
           body.data_nasc.trim(),
           cpf,
+          body.nome_mae?.trim().toUpperCase() || null,
           body.telefone.trim(),
           body.email?.trim() || null,
           body.endereco?.trim() || null,
@@ -193,7 +196,9 @@ pacientesRouter.put(
     try {
       const info = db
         .prepare(
-          `UPDATE pacientes SET nome = ?, data_nasc = ?, cpf = ?, telefone = ?, email = ?,
+          `UPDATE pacientes SET nome = ?, data_nasc = ?, cpf = ?,
+           nome_mae = CASE WHEN ? IS NULL THEN nome_mae ELSE NULLIF(?, '') END,
+           telefone = ?, email = ?,
            endereco = ?, numero = ?, bairro = ?, cidade = ?, uf = ?, fone_emergencia = ?,
            alergias = ?, medicacoes_uso = ?, observacoes_clinicas = ?,
            updated_at = datetime('now', 'localtime') WHERE id = ?`,
@@ -202,6 +207,8 @@ pacientesRouter.put(
           body.nome.trim(),
           body.data_nasc.trim(),
           cpf,
+          body.nome_mae == null ? null : body.nome_mae.trim().toUpperCase(),
+          body.nome_mae == null ? null : body.nome_mae.trim().toUpperCase(),
           body.telefone.trim(),
           body.email?.trim() || null,
           body.endereco?.trim() || null,

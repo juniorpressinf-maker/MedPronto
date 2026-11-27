@@ -23,6 +23,7 @@ import type { Perfil } from "../auth/users.js";
 import { getDb } from "../db/index.js";
 
 import { asyncHandler } from "../middleware/asyncHandler.js";
+import { logAcesso } from "../services/logAcesso.js";
 
 
 
@@ -92,7 +93,20 @@ function medicoTemHistoricoClinico(medicoId: number): boolean {
 
 
 
-function excluirMedico(medicoId: number): void {
+/** Auditoria 26/11 [7]: horários de hoje em diante ainda não atendidos. */
+function contarAgendaFuturaMedico(medicoId: number): number {
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS n FROM agendamentos
+       WHERE medico_id = ? AND data >= date('now', 'localtime')
+         AND status IN ('agendado', 'presente', 'em_atendimento')`,
+    )
+    .get(medicoId) as { n: number };
+  return row.n;
+}
+
+
+function excluirMedico(medicoId: number, nome: string): void {
 
   const db = getDb();
 
@@ -104,7 +118,12 @@ function excluirMedico(medicoId: number): void {
 
     db.prepare(`DELETE FROM receita_modelos WHERE medico_id = ?`).run(medicoId);
 
-    db.prepare(`DELETE FROM log_acesso WHERE usuario_id = ?`).run(medicoId);
+    // Auditoria 26/11 [7]: o log de auditoria NÃO é apagado — fica sem o vínculo e com o nome no texto.
+    db.prepare(
+      `UPDATE log_acesso SET usuario_id = NULL,
+         detalhe = ? || COALESCE(detalhe, '')
+       WHERE usuario_id = ?`,
+    ).run(`[médico excluído: ${nome} #${medicoId}] `, medicoId);
 
     db.prepare(`DELETE FROM usuarios WHERE id = ? AND perfil = 'medico'`).run(
 
@@ -488,6 +507,15 @@ medicosRouter.put(
 
     }
 
+    if (body.ativo === false) {
+      const futuros = contarAgendaFuturaMedico(id);
+      if (futuros > 0) {
+        res.status(409).json({
+          error: `Este médico tem ${futuros} horário(s) de hoje em diante. Remarque ou cancele na agenda antes de inativar.`,
+        });
+        return;
+      }
+    }
     if (body.ativo !== undefined) {
 
       sets.push("ativo = ?");
@@ -560,6 +588,13 @@ medicosRouter.delete(
 
     }
 
+    const futurosExcluir = contarAgendaFuturaMedico(id);
+    if (futurosExcluir > 0) {
+      res.status(409).json({
+        error: `Este médico tem ${futurosExcluir} horário(s) de hoje em diante. Remarque ou cancele na agenda antes de excluir.`,
+      });
+      return;
+    }
     if (medicoTemHistoricoClinico(id)) {
 
       res.status(400).json({
@@ -576,7 +611,12 @@ medicosRouter.delete(
 
     try {
 
-      excluirMedico(id);
+      excluirMedico(id, row.nome);
+      logAcesso({
+        usuarioId: req.usuario!.id,
+        acao: "medico_excluido",
+        detalhe: `id=${id} nome="${row.nome}"`,
+      });
 
       res.status(204).send();
 

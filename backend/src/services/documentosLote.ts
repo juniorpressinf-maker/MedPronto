@@ -15,6 +15,7 @@ import {
   prepararCamposConsultaPdf,
 } from "./fichaProntuario.js";
 import { isConsultaEncerrada } from "./consultaEncerrada.js";
+import { carregarCorrecoesExame } from "./exameCategoria.js";
 import { getDocumentoContext } from "./prontuarioAccess.js";
 
 export type DocumentoLoteTipo =
@@ -158,7 +159,13 @@ async function pdfPedidoExame(prontuarioId: number): Promise<Buffer | null> {
   const pedido = getDb()
     .prepare(`SELECT * FROM pedidos_exame WHERE prontuario_id = ? ORDER BY id DESC LIMIT 1`)
     .get(prontuarioId) as
-    | { exames_solicitados: string; observacoes: string | null; cid_codigo: string | null; cid_descricao: string | null }
+    | {
+        exames_solicitados: string;
+        observacoes: string | null;
+        observacoes_imagem: string | null;
+        cid_codigo: string | null;
+        cid_descricao: string | null;
+      }
     | undefined;
   if (!pedido?.exames_solicitados?.trim()) return null;
   return gerarPdfPedidoExame(
@@ -166,6 +173,8 @@ async function pdfPedidoExame(prontuarioId: number): Promise<Buffer | null> {
     pedido.exames_solicitados,
     pedido.observacoes,
     { codigo: pedido.cid_codigo, descricao: pedido.cid_descricao },
+    carregarCorrecoesExame(),
+    pedido.observacoes_imagem,
   );
 }
 

@@ -1,6 +1,11 @@
 import PDFDocument from "pdfkit";
 import { parseDataImageUrl } from "../utils/imageDataUrl.js";
 import { blocosHtml } from "./textoFormatado.js";
+import {
+  grupoReceita,
+  separarPedido,
+  type CategoriaExame,
+} from "./classificacaoDocs.js";
 
 export type PdfDocContext = {
   clinica_nome: string;
@@ -74,12 +79,17 @@ function dataHojeExtenso(): string {
 }
 
 /** Modo clássico, antes da assinatura: "Ribeirão Preto (SP), 20 de novembro de 2026." (à esquerda) */
-function desenharLocalData(doc: PDFKit.PDFDocument, ctx: PdfDocContext) {
+function desenharLocalData(
+  doc: PDFKit.PDFDocument,
+  ctx: PdfDocContext,
+  x: number = doc.page.margins.left,
+  antes = 2,
+) {
   const local = cidadeUf(ctx);
-  doc.moveDown(2);
+  doc.moveDown(antes);
   doc.font("Helvetica").fontSize(11);
   // Data alinhada à esquerda (margem do texto) e 2 linhas a mais antes da assinatura.
-  doc.text(`${local ? `${local}, ` : ""}${dataHojeExtenso()}.`, doc.page.margins.left, doc.y, { align: "left" });
+  doc.text(`${local ? `${local}, ` : ""}${dataHojeExtenso()}.`, x, doc.y, { align: "left" });
   doc.moveDown(4.5);
 }
 
@@ -117,8 +127,16 @@ function drawCabecalhoClinica(doc: PDFKit.PDFDocument, ctx: PdfDocContext) {
   doc.moveDown(1.2);
 }
 
-function drawHeader(doc: PDFKit.PDFDocument, ctx: PdfDocContext, titulo: string) {
-  const { left, width } = areaUtil(doc);
+/** `simples`: só nome e nascimento do paciente (receita e pedido de exame). */
+function drawHeader(
+  doc: PDFKit.PDFDocument,
+  ctx: PdfDocContext,
+  titulo: string,
+  opcoes: { simples?: boolean; coluna?: { left: number; width: number } } = {},
+) {
+  const area = areaUtil(doc);
+  // Título centralizado na página; nome/nasc./linha podem seguir a coluna do corpo (receita).
+  const { left, width } = opcoes.coluna ?? area;
   if (ctx.timbrado) {
     // O timbre já traz a clínica: começa direto no título, abaixo da margem do papel.
     doc.x = left;
@@ -126,8 +144,8 @@ function drawHeader(doc: PDFKit.PDFDocument, ctx: PdfDocContext, titulo: string)
   } else {
     drawCabecalhoClinica(doc, ctx);
   }
-  doc.fontSize(13).font("Helvetica-Bold").text(titulo, left, doc.y, {
-    width,
+  doc.fontSize(13).font("Helvetica-Bold").text(titulo, area.left, doc.y, {
+    width: area.width,
     align: "center",
   });
   doc.x = left;
@@ -135,6 +153,14 @@ function drawHeader(doc: PDFKit.PDFDocument, ctx: PdfDocContext, titulo: string)
 
   doc.fontSize(10).font("Helvetica");
   doc.text(`Paciente: ${ctx.paciente_nome}`, left, doc.y, { width });
+  if (opcoes.simples) {
+    if (ctx.paciente_nasc) doc.text(`Nasc.: ${formatDataBr(ctx.paciente_nasc)}`, left, doc.y, { width });
+    doc.moveDown(0.8);
+    doc.moveTo(left, doc.y).lineTo(left + width, doc.y).strokeColor("#94a8c4").stroke();
+    doc.x = left;
+    doc.moveDown(0.8);
+    return;
+  }
   const idade = ctx.paciente_nasc ? `Nasc.: ${formatDataBr(ctx.paciente_nasc)}` : "";
   const cpf = ctx.paciente_cpf ? `CPF: ${ctx.paciente_cpf}` : "";
   doc.text([idade, cpf].filter(Boolean).join("   "), left, doc.y, { width });
@@ -188,35 +214,56 @@ export function gerarPdfReceita(
   observacoes?: string | null,
 ): Promise<Buffer> {
   return pdfToBuffer((doc) => {
-    drawHeader(doc, ctx, "RECEITUÁRIO");
-    doc.fontSize(11).font("Helvetica-Bold").text("Medicamentos:");
-    doc.moveDown(0.3);
-    doc.font("Helvetica");
+    // Corpo numa coluna recuada (como a receita feita no Word): grupo sublinhado,
+    // "1)" com o nome alinhado num recuo e a posologia logo abaixo do nome.
+    const { left: margem, width: larguraTotal } = areaUtil(doc);
+    const left = margem + 110;
+    const width = Math.min(330, larguraTotal - 110);
+    drawHeader(doc, ctx, "RECEITUÁRIO", { simples: true, coluna: { left, width } });
+    const recuo = 20;
+    doc.fontSize(11).font("Helvetica");
+    doc.moveDown(0.6);
     if (itens.length === 0) {
-      doc.text("(sem itens)");
+      doc.text("(sem itens)", left, doc.y, { width });
     } else {
-      itens.forEach((it, i) => {
-        doc.font("Helvetica-Bold").text(`${i + 1}. ${it.medicamento}`);
-        doc.font("Helvetica");
-        const parts: string[] = [];
-        if (it.dosagem) parts.push(`Dose: ${it.dosagem}`);
-        if (it.via) parts.push(`Via: ${it.via}`);
-        if (it.posologia) parts.push(it.posologia);
-        if (it.quantidade) parts.push(`Qtd: ${it.quantidade}`);
-        if (it.duracao_dias) parts.push(`${it.duracao_dias} dia(s)`);
-        if (parts.length) doc.text(parts.join(" · "));
-        doc.moveDown(0.4);
+      // Agrupa por uso (USO ORAL, USO TÓPICO...), na ordem do grupo; dentro dele, a ordem digitada.
+      const grupos = new Map<string, { titulo: string; ordem: number; itens: ReceitaPdfItem[] }>();
+      for (const it of itens) {
+        const g = grupoReceita(it.via, it.medicamento, it.dosagem, it.posologia);
+        const atual = grupos.get(g.chave) ?? { titulo: g.titulo, ordem: g.ordem, itens: [] };
+        atual.itens.push(it);
+        grupos.set(g.chave, atual);
+      }
+      const ordenados = [...grupos.values()].sort((a, b) => a.ordem - b.ordem);
+      ordenados.forEach((g, gi) => {
+        if (gi > 0) doc.moveDown(1);
+        doc.font("Helvetica-Bold").text(`${g.titulo}:`, left, doc.y, { width, underline: true });
+        doc.moveDown(0.9);
+        g.itens.forEach((it, i) => {
+          const nome = [it.medicamento, it.dosagem].filter((x) => x && String(x).trim()).join(" ");
+          const y = doc.y;
+          doc.font("Helvetica-Bold").text(`${i + 1})`, left, y, { width: recuo, lineBreak: false });
+          doc.text(nome, left + recuo, y, { width: width - recuo });
+          doc.font("Helvetica");
+          const parts: string[] = [];
+          if (it.posologia) parts.push(it.posologia);
+          if (it.quantidade) parts.push(`Qtd: ${it.quantidade}`);
+          if (it.duracao_dias) parts.push(`${it.duracao_dias} dia(s)`);
+          if (parts.length) doc.text(parts.join(" · "), left + recuo, doc.y, { width: width - recuo });
+          doc.moveDown(0.25);
+        });
       });
     }
     if (observacoes?.trim()) {
-      doc.moveDown(0.5);
-      doc.font("Helvetica-Bold").text("Observações:");
-      doc.font("Helvetica").text(observacoes.trim());
+      doc.moveDown(0.8);
+      doc.font("Helvetica-Bold").text("Observações:", left, doc.y, { width });
+      doc.font("Helvetica").text(observacoes.trim(), left, doc.y, { width });
     }
-    desenharLocalData(doc, ctx);
-    doc.text("_________________________________________", { align: "center" });
-    doc.text(ctx.medico_nome, { align: "center" });
-    if (ctx.medico_crm) doc.text(`CRM ${ctx.medico_crm}`, { align: "center" });
+    desenharLocalData(doc, ctx, left, 3);
+    // Assinatura centralizada na coluna do corpo.
+    doc.text("_________________________________________", left, doc.y, { width, align: "center" });
+    doc.text(ctx.medico_nome, left, doc.y, { width, align: "center" });
+    if (ctx.medico_crm) doc.text(`CRM ${ctx.medico_crm}`, left, doc.y, { width, align: "center" });
   }, ctx);
 }
 
@@ -256,39 +303,56 @@ export function gerarPdfAtestado(
   }, ctx);
 }
 
+/**
+ * Pedido de exame: laboratório e imagem/outros saem em FOLHAS SEPARADAS (cada uma com
+ * cabeçalho, indicação e assinatura). `correcoes` = categoria que o médico corrigiu por exame.
+ */
 export function gerarPdfPedidoExame(
   ctx: PdfDocContext,
   exames: string,
   observacoes?: string | null,
   cid?: { codigo?: string | null; descricao?: string | null } | null,
+  correcoes?: Record<string, CategoriaExame> | Map<string, CategoriaExame> | null,
+  /** Indicação só da folha de imagem; vazia: repete `observacoes`. */
+  observacoesImagem?: string | null,
 ): Promise<Buffer> {
   return pdfToBuffer((doc) => {
-    drawHeader(doc, ctx, "PEDIDO DE EXAME");
-    doc.fontSize(11).font("Helvetica-Bold").text("Exames solicitados:");
-    doc.moveDown(0.3);
-    // Um exame por linha, numerado (igual ao Clinicar)
     const linhas = exames
       .split(/\r?\n/)
       .map((l) => l.trim())
       .filter(Boolean);
-    doc.font("Helvetica");
-    if (!linhas.length) doc.text("(não informado)");
-    linhas.forEach((l, i) => doc.text(`${i + 1}. ${l}`));
+    const folhas = separarPedido(linhas, correcoes);
+    if (!folhas.length) folhas.push({ categoria: "lab", exames: [] });
     const cidTexto = [cid?.codigo, cid?.descricao].filter((x) => x && String(x).trim()).join(" — ");
-    if (cidTexto) {
-      doc.moveDown(0.8);
-      doc.font("Helvetica-Bold").text("CID-10: ", { continued: true });
-      doc.font("Helvetica").text(cidTexto);
-    }
-    if (observacoes?.trim()) {
-      doc.moveDown(0.8);
-      doc.font("Helvetica-Bold").text("Indicação clínica / observações:");
-      doc.font("Helvetica").text(observacoes.trim());
-    }
-    desenharLocalData(doc, ctx);
-    doc.text("_________________________________________", { align: "center" });
-    doc.text(ctx.medico_nome, { align: "center" });
-    if (ctx.medico_crm) doc.text(`CRM ${ctx.medico_crm}`, { align: "center" });
+    folhas.forEach((folha, fi) => {
+      if (fi > 0) doc.addPage();
+      drawHeader(doc, ctx, "PEDIDO DE EXAME", { simples: true });
+      const { left } = areaUtil(doc);
+      doc.fontSize(11).font("Helvetica-Bold").text("Solicito:", left, doc.y);
+      doc.moveDown(0.3);
+      doc.font("Helvetica");
+      if (!folha.exames.length) doc.text("(não informado)", left, doc.y);
+      // Um exame por linha, numerado (igual ao Clinicar)
+      folha.exames.forEach((l, i) => doc.text(`${i + 1}. ${l}`, left, doc.y));
+      if (cidTexto) {
+        doc.moveDown(0.8);
+        doc.font("Helvetica-Bold").text("CID-10: ", left, doc.y, { continued: true });
+        doc.font("Helvetica").text(cidTexto);
+      }
+      const obs =
+        folha.categoria === "imagem" && observacoesImagem?.trim()
+          ? observacoesImagem.trim()
+          : observacoes?.trim();
+      if (obs) {
+        doc.moveDown(0.8);
+        doc.font("Helvetica-Bold").text("Indicação clínica / observações:", left, doc.y);
+        doc.font("Helvetica").text(obs, left, doc.y);
+      }
+      desenharLocalData(doc, ctx);
+      doc.text("_________________________________________", { align: "center" });
+      doc.text(ctx.medico_nome, { align: "center" });
+      if (ctx.medico_crm) doc.text(`CRM ${ctx.medico_crm}`, { align: "center" });
+    });
   }, ctx);
 }
 

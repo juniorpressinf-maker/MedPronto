@@ -495,6 +495,12 @@ export const api = {
   cobrancaCaixaGet: (data: string) =>
     request<CobrancaCaixaDoDia>(`/cobranca/caixa?data=${encodeURIComponent(data)}`),
 
+  /** Contas em aberto de dias anteriores à data (aba Pendências). */
+  cobrancaPendenciasAnteriores: (data: string) =>
+    request<CobrancaPendenteAnterior[]>(
+      `/cobranca/pendencias-anteriores?data=${encodeURIComponent(data)}`,
+    ),
+
   cobrancaRelatorioGet: (de: string, ate: string) => {
     const params = new URLSearchParams({ de, ate });
     return request<CobrancaRelatorio>(`/cobranca/relatorios?${params}`);
@@ -534,7 +540,12 @@ export const api = {
     ),
   cobrancaContaReceberConvenio: (
     contaId: number,
-    body: { data_recebimento?: string; valor_centavos?: number; observacao?: string },
+    body: {
+      data_recebimento?: string;
+      valor_centavos?: number;
+      observacao?: string;
+      motivo_glosa?: string;
+    },
   ) =>
     request<CobrancaContaDetalhe>(`/cobranca/contas/${contaId}/receber-convenio`, {
       method: "POST",
@@ -1222,6 +1233,13 @@ export const api = {
     }>(`/agendamentos/resumo?${p}`);
   },
 
+  /** Dias anteriores com horário sem desfecho (sem check-in/falta ou na sala sem finalizar). */
+  agendamentosPendenciasDias: (medicoId?: number) => {
+    const p = new URLSearchParams();
+    if (medicoId) p.set("medico_id", String(medicoId));
+    return request<PendenciaDiaFila[]>(`/agendamentos/pendencias-dias?${p}`);
+  },
+
   agendamentosFila: (data: string, medicoId?: number) => {
     const p = new URLSearchParams({ data });
     if (medicoId) p.set("medico_id", String(medicoId));
@@ -1454,6 +1472,18 @@ export const api = {
       `/prontuarios/${prontuarioId}/pedido-exame`,
     ),
 
+  /** Categoria (lab / imagem) corrigida pelo médico, por exame (chave = nome sem acento). */
+  pedidoExameCategorias: (prontuarioId: number) =>
+    request<{ correcoes: Record<string, "lab" | "imagem"> }>(
+      `/prontuarios/${prontuarioId}/pedido-exame/categorias`,
+    ),
+
+  pedidoExameCategoriaSalvar: (prontuarioId: number, nome: string, categoria: "lab" | "imagem") =>
+    request<{ correcoes: Record<string, "lab" | "imagem"> }>(
+      `/prontuarios/${prontuarioId}/pedido-exame/categorias`,
+      { method: "PUT", body: JSON.stringify({ nome, categoria }) },
+    ),
+
   pedidoExameSave: (prontuarioId: number, body: Partial<PedidoExame>) =>
     request<{ pedido: PedidoExame }>(`/prontuarios/${prontuarioId}/pedido-exame`, {
       method: "PUT",
@@ -1640,6 +1670,7 @@ export type Paciente = {
   nome: string;
   data_nasc?: string | null;
   cpf?: string | null;
+  nome_mae?: string | null;
   telefone?: string | null;
   email?: string | null;
   endereco?: string | null;
@@ -1835,6 +1866,7 @@ export type ProntuarioDetalhe = Prontuario & {
   paciente_nome?: string;
   paciente_nasc?: string | null;
   paciente_cpf?: string | null;
+  paciente_mae?: string | null;
   paciente_telefone?: string | null;
   paciente_email?: string | null;
   alergias?: string | null;
@@ -1889,6 +1921,8 @@ export type PedidoExame = {
   id?: number;
   exames_solicitados: string;
   observacoes?: string | null;
+  /** Indicação só da folha de imagem (vazia: repete a geral). */
+  observacoes_imagem?: string | null;
   cid_codigo?: string | null;
   cid_descricao?: string | null;
 };
@@ -2148,6 +2182,39 @@ export type CobrancaCaixaDoDia = {
   };
   por_forma: { forma: string; valor_centavos: number }[];
   contas: CobrancaCaixaConta[];
+  /** Contas em aberto de dias anteriores (paciente saiu sem pagar/fechar). */
+  pendentes_anteriores?: CobrancaPendenteAnterior[];
+  /** Pagamentos registrados no dia em contas de outra data. */
+  recebidos_outros_dias?: {
+    pagamento_id: number;
+    conta_id: number;
+    conta_data: string;
+    paciente_nome: string;
+    forma: string;
+    valor_centavos: number;
+  }[];
+};
+
+export type PendenciaDiaFila = {
+  data: string;
+  total: number;
+  na_sala: number;
+  sem_desfecho: number;
+  /** Médicos com pendência no dia. */
+  medicos?: { id: number; nome: string; total: number }[];
+};
+
+export type CobrancaPendenteAnterior = {
+  id: number;
+  data: string;
+  paciente_id: number;
+  paciente_nome: string;
+  convenio_nome: string | null;
+  agendamento_hora: string | null;
+  agendamento_status: string | null;
+  procedimentos_nomes: string;
+  saldo_pendente_centavos: number;
+  sem_preco: boolean;
 };
 
 export type RelatorioFaturamentoConvenio = {
@@ -2256,4 +2323,24 @@ export type CobrancaContaDetalhe = CobrancaContaResumo & {
   total_liquido_centavos: number;
   total_pago_centavos: number;
   saldo_pendente_centavos: number;
+  /** Pago a mais que o líquido. */
+  saldo_credor_centavos?: number;
+  /** Procedimentos sem preço para o convênio da conta (bloqueia fechar/receber). */
+  procedimentos_sem_preco?: string[];
+  /** Valores travados: tabela de preços atual não muda mais a conta. */
+  precos_congelados?: boolean;
+  reaberta_em?: string | null;
+  glosa_centavos?: number;
+  glosa_motivo?: string | null;
+  /** Pagamentos estornados (registro guardado; não contam no pago). */
+  estornos?: {
+    id: number;
+    pagamento_id: number;
+    forma: string;
+    valor_centavos: number;
+    registrado_em: string;
+    estornado_em: string;
+    estornado_por_nome: string | null;
+    motivo: string;
+  }[];
 };

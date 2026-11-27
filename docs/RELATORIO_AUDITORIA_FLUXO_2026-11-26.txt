@@ -1,0 +1,170 @@
+MEDPRONTO — AUDITORIA DO FLUXO COMPLETO (paciente → caixa)
+Data: 26/11/2026
+=====================================================================
+
+Escopo: entrada do paciente, cadastro de médico, procedimentos/convênios/
+preços, agendamento, check-in, prontuário/ASO, finalização, conta,
+pagamento, baixa de convênio e Caixa (Cobrança e Financeiro).
+Análise do backend e do banco (código + migrações + gatilhos).
+
+
+1. O QUE ESTÁ BEM ENLAÇADO (verificado)
+---------------------------------------------------------------------
+- Check-in ("presente") abre a conta do horário e lança os itens dos
+  procedimentos na mesma transação; se falhar, o status não muda.
+- Não há atalho agendado → em atendimento: todo atendimento passa pelo
+  check-in, logo todo atendimento tem conta.
+- Prontuário exige horário; prontuário e ASO herdam paciente e médico do
+  horário; gatilhos impedem trocar depois.
+- Convênio do horário sincroniza com a conta aberta (gatilho).
+- Cancelar/falta cancela a conta vazia; com pagamento é bloqueado.
+- Finalizar é atômico e não volta atrás.
+- Caixa do Financeiro lê os pagamentos direto da Cobrança (sem duplicar).
+
+
+2. ACHADOS
+---------------------------------------------------------------------
+GRAVES (dinheiro se perde)
+[1] Procedimento sem preço para o convênio entrava por R$ 0, sem aviso.
+    A conta fechava "pago" com zero. Célula vazia na tabela de preços
+    apaga o preço. ......................................... CORRIGIDO
+[2] Preço retroativo: toda conta aberta era reprecificada pela tabela
+    atual a cada abertura da tela; reabrir conta antiga mudava o valor;
+    pago a mais ficava escondido (saldo nunca negativo). .... CORRIGIDO
+[3] Glosa de convênio sumia: a baixa aceitava qualquer valor e marcava
+    "pago" sem registrar a diferença. Com coparticipação, a baixa padrão
+    lançava o líquido inteiro (entrava em dobro). ........... CORRIGIDO
+[4] ASO avulso (sem horário) não gera conta — pode não ser cobrado.
+    ..................................................... CORRIGIDO
+[5] Paciente que saiu sem pagar sumia da recepção: o Caixa do dia só
+    mostra a data escolhida. .............................. CORRIGIDO
+
+MÉDIOS
+[6] Caixa do dia (Cobrança) agrupa pela data da CONTA; Caixa do
+    Financeiro, relatórios e dashboard pela data do PAGAMENTO. Conta de
+    ontem paga hoje: conferência não bate. ................. CORRIGIDO
+[7] Excluir médico apaga os horários futuros dele (sem aviso) e o log de
+    auditoria dele. Inativar não confere agenda futura. .... CORRIGIDO
+[8] Desativar convênio não confere agenda futura: o check-in desses
+    pacientes trava com "Convênio inválido". ............... CORRIGIDO
+[9] Estorno apaga a linha do pagamento (fica só no log); nenhum gatilho
+    protege conta_pagamentos; reabrir conta de outro dia não tem trava
+    de data. ............................................... CORRIGIDO
+    (reabrir continua sem trava de data: com o preço congelado [2] e os
+    pagamentos intactos, reabrir não muda o caixa de dia anterior)
+[10] Data de recebimento do convênio podia ser futura. ..... CORRIGIDO
+
+
+3. CORREÇÕES APLICADAS (26/11/2026)
+---------------------------------------------------------------------
+[1] Procedimento sem preço
+    - A conta mostra aviso vermelho com os procedimentos sem preço e link
+      para Cobrança › Preços.
+    - Conta com procedimento sem preço NÃO recebe pagamento e NÃO fecha
+      (normal ou faturar convênio). Isentar continua permitido.
+    - Preço 0 cadastrado = gratuito (continua valendo).
+    ATENÇÃO: procedimentos sem preço para algum convênio vão travar o
+    recebimento até a tabela ser completada — é o objetivo.
+    - Convênio novo nasce com preço 0 em todos os procedimentos ativos
+      (igual ao procedimento novo).
+    - Consulta retorno: preço 0 preenchido em todo convênio que estava
+      vazio (migração 063). Preço já cadastrado não muda.
+
+[2] Preço congelado
+    - A tabela atual só atualiza a conta enquanto ela não tem pagamento e
+      nunca foi reaberta. Depois disso vale o preço do atendimento.
+    - Item lançado depois do congelamento segue a tabela até fechar.
+    - Trocar o convênio da conta continua reprecificando (ação explícita).
+    - Novo aviso "Pago a mais" quando o pago passa do valor da conta.
+
+[3] Glosa de convênio
+    - A baixa recebe o SALDO (líquido − o que o paciente já pagou).
+    - Na conta: campo "Valor recebido"; se for menor que o saldo, pede o
+      motivo da glosa. Valor maior que o saldo é recusado.
+    - Glosa fica gravada na conta (valor + motivo) e no log.
+    - Lista de pendentes de repasse mostra o saldo real.
+    - Baixa em lote recebe o saldo de cada conta (sem glosa).
+
+[5] Pendentes de dias anteriores
+    - O Caixa do dia mostra um quadro amarelo com as contas em aberto de
+      dias anteriores (data, paciente, procedimentos, saldo, "Mostrar").
+
+[10] Data de recebimento do convênio não pode ser futura.
+
+Arquivos:
+- database/062_conta_preco_congelado_glosa.sql (novo: reaberta_em,
+  glosa_centavos, glosa_motivo — aplicado sozinho ao abrir o sistema)
+- database/063_retorno_preco_zero_convenios.sql (novo)
+- backend/src/services/cobrancaCadastros.ts (convênio novo com preço 0)
+- backend/src/services/cobrancaContas.ts
+- backend/src/services/cobrancaPagamentos.ts
+- backend/src/services/cobrancaReceberConvenio.ts
+- backend/src/services/cobrancaCaixa.ts
+- backend/src/routes/cobranca.ts
+- frontend/src/lib/api.ts
+- frontend/src/pages/cobranca/CobrancaContaPage.tsx
+- frontend/src/pages/cobranca/CobrancaCaixaPage.tsx
+
+Conferência: tipos do backend checados; sintaxe do frontend checada; SQL
+novo testado em banco de teste em memória. Build e test:todos NÃO
+rodados (precisam de autorização). Testes antigos que fecham conta com
+procedimento sem preço podem precisar de ajuste.
+
+
+4. CORREÇÕES APLICADAS — LOTE 2 (26/11/2026)
+---------------------------------------------------------------------
+[4] ASO avulso entra na cobrança sozinho
+    - Ao criar ASO sem horário, o sistema usa a conta avulsa do paciente
+      no dia (ou abre uma) e lança o procedimento de ASO já vinculado.
+    - Se a conta avulsa do dia já estiver fechada, não lança (o ASO segue
+      aparecendo como sugestão ao abrir conta). Falha na cobrança não
+      impede o atendimento.
+
+[6] Caixa do dia pela data do PAGAMENTO
+    - "Recebido no dia" e "Totais por forma" = pagamentos registrados na
+      data, de qualquer conta (mesmo critério do Caixa do Financeiro).
+    - Novo quadro "Recebido neste dia de contas de outras datas".
+    - Lista de contas do dia continua pela data do atendimento.
+
+[7] Médico
+    - Inativar ou excluir é recusado se houver horário de hoje em diante
+      (agendado/presente/em atendimento): remarcar ou cancelar antes.
+    - Excluir não apaga mais o log de auditoria: as linhas ficam com
+      "[médico excluído: nome #id]"; a exclusão também vai para o log.
+
+[8] Convênio
+    - Desativar é recusado se houver horário de hoje em diante ou conta
+      em aberto com ele.
+
+[9] Pagamentos
+    - Estorno guarda o pagamento em conta_pagamentos_estornados (quem,
+      quando, motivo); a conta mostra "Pagamentos estornados".
+    - Gatilhos no banco: valor/forma/conta de pagamento não mudam;
+      pagamento só entra em conta em aberto ou aguardando repasse, com
+      valor positivo; estorno registrado não se altera nem se apaga.
+
+Arquivos (lote 2):
+- database/064_pagamento_estornos_protecao.sql (novo)
+- backend/src/services/cobrancaAsoAvulso.ts (novo)
+- backend/src/routes/admissionais.ts, routes/medicos.ts, routes/cobranca.ts
+- backend/src/services/cobrancaCaixa.ts, cobrancaCadastros.ts,
+  cobrancaContas.ts, cobrancaPagamentos.ts
+- backend/scripts/test-m6-cobranca.ts (pagamento na data do teste)
+- frontend/src/lib/api.ts, pages/cobranca/CobrancaCaixaPage.tsx,
+  pages/cobranca/CobrancaContaPage.tsx
+
+Conferência: tipos do backend e sintaxe do frontend checados; gatilhos
+novos testados em banco de teste em memória. Build e test:todos não
+rodados aqui (sem acesso ao terminal do PC).
+
+5. PENDÊNCIAS DE DIAS ANTERIORES (27/11/2026, igual ao CliniCar)
+---------------------------------------------------------------------
+- Sala de espera: faixa vermelha "Pendências de dias anteriores" com um
+  botão por dia (horários sem check-in/falta ou na sala sem finalizar,
+  últimos 90 dias). Clicar abre aquele dia. Médico vê só os dele.
+- Cobrança › Contas do dia: aba "Pendências de outros dias" com contador
+  e lista das contas em aberto de dias anteriores (saldo + Mostrar).
+- Rotas: GET /api/agendamentos/pendencias-dias,
+  GET /api/cobranca/pendencias-anteriores.
+- Empacotador/instalador: a janela de progresso roda em thread própria
+  (minimizar/restaurar funciona durante as etapas longas).

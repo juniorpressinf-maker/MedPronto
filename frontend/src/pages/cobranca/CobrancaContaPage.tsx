@@ -1,6 +1,6 @@
 import { Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useLocation, useNavigate } from "react-router-dom";
+import { Link, useParams, useLocation, useNavigate } from "react-router-dom";
 import { ContaItemExameVinculo } from "../../components/ContaItemExameVinculo";
 import { ContaItemAdmissionalVinculo } from "../../components/ContaItemAdmissionalVinculo";
 import { VoltarButton } from "../../components/VoltarButton";
@@ -81,6 +81,9 @@ export function CobrancaContaPage() {
   const [obsGuia, setObsGuia] = useState("");
   const [dataRecebimentoConvenio, setDataRecebimentoConvenio] = useState(hojeIso());
   const [obsRecebimentoConvenio, setObsRecebimentoConvenio] = useState("");
+  /** Vazio = recebe o saldo inteiro. Menor que o saldo = glosa (pede motivo). */
+  const [valorConvenioReais, setValorConvenioReais] = useState("");
+  const [motivoGlosa, setMotivoGlosa] = useState("");
 
   const carregar = useCallback(async () => {
     if (!contaId) return;
@@ -299,11 +302,27 @@ export function CobrancaContaPage() {
     }
   };
 
+  const saldoConvenio = conta?.saldo_pendente_centavos ?? 0;
+  const valorConvenioCentavos = valorConvenioReais.trim()
+    ? (reaisParaCentavos(valorConvenioReais) ?? 0)
+    : saldoConvenio;
+  const glosaConvenio = Math.max(0, saldoConvenio - valorConvenioCentavos);
+
   const receberConvenioConta = async () => {
     if (!conta) return;
+    if (valorConvenioCentavos <= 0 || valorConvenioCentavos > saldoConvenio) {
+      void msg.error(`Informe um valor entre R$ 0,01 e ${formatBRL(saldoConvenio)}.`);
+      return;
+    }
+    if (glosaConvenio > 0 && motivoGlosa.trim().length < 3) {
+      void msg.error(`O convênio pagou ${formatBRL(glosaConvenio)} a menos — informe o motivo da glosa.`);
+      return;
+    }
     const ok = await msg.confirm({
       title: "Registrar recebimento do convênio?",
-      message: `Valor: ${formatBRL(totalLiquidoExibido)}\nData do crédito: ${formatDataBr(dataRecebimentoConvenio)}`,
+      message: `Valor: ${formatBRL(valorConvenioCentavos)}${
+        glosaConvenio > 0 ? `\nGlosa: ${formatBRL(glosaConvenio)}` : ""
+      }\nData do crédito: ${formatDataBr(dataRecebimentoConvenio)}`,
       confirmLabel: "Registrar",
     });
     if (!ok) return;
@@ -313,6 +332,8 @@ export function CobrancaContaPage() {
         await api.cobrancaContaReceberConvenio(conta.id, {
           data_recebimento: dataRecebimentoConvenio,
           observacao: obsRecebimentoConvenio.trim() || undefined,
+          valor_centavos: valorConvenioCentavos,
+          motivo_glosa: glosaConvenio > 0 ? motivoGlosa.trim() : undefined,
         }),
       );
       navigateBackFromConta(navigate, returnTo, conta.id);
@@ -327,7 +348,8 @@ export function CobrancaContaPage() {
     if (!conta) return;
     const ok = await msg.confirm({
       title: "Reabrir conta?",
-      message: "A conta voltará ao status em aberto.",
+      message:
+        "A conta voltará ao status em aberto. Os valores dos itens já lançados ficam como estão (a tabela de preços atual não muda esta conta).",
       confirmLabel: "Reabrir",
     });
     if (!ok) return;
@@ -438,6 +460,27 @@ export function CobrancaContaPage() {
       >
         {returnLabel}
       </VoltarButton>
+
+      {conta.procedimentos_sem_preco && conta.procedimentos_sem_preco.length > 0 ? (
+        <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+          <strong>Sem preço cadastrado para {conta.convenio_nome ?? "este convênio"}:</strong>{" "}
+          {conta.procedimentos_sem_preco.join(", ")}. Cadastre em{" "}
+          <Link to="/cobranca/precos">Cobrança › Preços</Link> (0 = gratuito). Enquanto isso a
+          conta não recebe pagamento nem fecha.
+        </div>
+      ) : null}
+      {(conta.saldo_credor_centavos ?? 0) > 0 ? (
+        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          Pago a mais: <strong>{formatBRL(conta.saldo_credor_centavos ?? 0)}</strong> acima do
+          valor da conta — devolva ao paciente ou ajuste os itens.
+        </div>
+      ) : null}
+      {(conta.glosa_centavos ?? 0) > 0 ? (
+        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          Glosa do convênio: <strong>{formatBRL(conta.glosa_centavos ?? 0)}</strong>
+          {conta.glosa_motivo ? ` — ${conta.glosa_motivo}` : ""}
+        </div>
+      ) : null}
 
       <div className="est-card p-4">
         <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
@@ -798,7 +841,20 @@ export function CobrancaContaPage() {
                     className="legacy-input"
                     disabled={busy}
                     value={dataRecebimentoConvenio}
+                    max={hojeIso()}
                     onChange={(e) => setDataRecebimentoConvenio(e.target.value)}
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="font-medium block mb-1">Valor recebido (R$)</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    className="legacy-input w-32"
+                    disabled={busy}
+                    placeholder={(saldoConvenio / 100).toFixed(2).replace(".", ",")}
+                    value={valorConvenioReais}
+                    onChange={(e) => setValorConvenioReais(e.target.value)}
                   />
                 </label>
                 <label className="text-sm flex-1 min-w-[12rem]">
@@ -814,8 +870,28 @@ export function CobrancaContaPage() {
                   />
                 </label>
               </div>
+              {glosaConvenio > 0 ? (
+                <label className="text-sm block">
+                  <span className="font-medium block mb-1 text-amber-900">
+                    Glosa de {formatBRL(glosaConvenio)} — motivo *
+                  </span>
+                  <input
+                    type="text"
+                    className="legacy-input w-full"
+                    maxLength={500}
+                    disabled={busy}
+                    placeholder="Ex.: procedimento glosado por falta de autorização"
+                    value={motivoGlosa}
+                    onChange={(e) => setMotivoGlosa(e.target.value)}
+                  />
+                </label>
+              ) : null}
               <p className="text-sm m-0">
-                Valor: <strong>{formatBRL(totalLiquidoExibido)}</strong> · Repasse convênio
+                A receber: <strong>{formatBRL(saldoConvenio)}</strong>
+                {conta.total_pago_centavos > 0
+                  ? ` (já descontado ${formatBRL(conta.total_pago_centavos)} pago pelo paciente)`
+                  : ""}{" "}
+                · Repasse convênio
               </p>
               <button
                 type="button"
@@ -911,6 +987,38 @@ export function CobrancaContaPage() {
           ) : null}
         </div>
       </div>
+
+      {conta.estornos && conta.estornos.length > 0 ? (
+        <div className="est-card p-4">
+          <p className="text-sm font-medium m-0 mb-2">Pagamentos estornados</p>
+          <div className="dup-table-wrap">
+            <table className="data-table data-table--compact">
+              <thead>
+                <tr>
+                  <th>Forma</th>
+                  <th className="text-right">Valor</th>
+                  <th>Lançado em</th>
+                  <th>Estornado em</th>
+                  <th>Por</th>
+                  <th>Motivo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {conta.estornos.map((e) => (
+                  <tr key={e.id} className="text-[var(--muted)]">
+                    <td>{labelFormaPagamento(e.forma)}</td>
+                    <td className="text-right line-through">{formatBRL(e.valor_centavos)}</td>
+                    <td className="text-sm">{e.registrado_em}</td>
+                    <td className="text-sm">{e.estornado_em}</td>
+                    <td className="text-sm">{e.estornado_por_nome ?? "—"}</td>
+                    <td className="text-sm">{e.motivo}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
 
       {!editavel && ehAdmin ? (
         <button

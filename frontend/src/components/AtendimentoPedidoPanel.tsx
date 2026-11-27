@@ -4,6 +4,13 @@ import { DocAcoes } from "./DocAcoes";
 import { NomeAutocomplete } from "./NomeAutocomplete";
 import { ApiError, PdfCancelado, api, type PedidoExame } from "../lib/api";
 import { upperPrompt } from "../lib/upperPrompt";
+import {
+  CATEGORIA_EXAME_LABEL,
+  categoriaExame,
+  chaveExame,
+  separarPedido,
+  type CategoriaExame,
+} from "../lib/classificacaoDocs";
 import { useAutoSalvar } from "../lib/useAutoSalvar";
 import { useMessageBox } from "../lib/messageBoxContext";
 
@@ -17,13 +24,20 @@ type Props = {
   onVoltar: () => void;
 };
 
-const VAZIO = (): PedidoExame => ({ exames_solicitados: "", observacoes: "", cid_codigo: "", cid_descricao: "" });
+const VAZIO = (): PedidoExame => ({
+  exames_solicitados: "",
+  observacoes: "",
+  observacoes_imagem: "",
+  cid_codigo: "",
+  cid_descricao: "",
+});
 
 /** Linhas em branco não contam como alteração. */
 const snapshot = (f: PedidoExame) =>
   JSON.stringify([
     f.exames_solicitados.split("\n").map((l) => l.trim()).filter(Boolean).join("\n"),
     f.observacoes ?? "",
+    f.observacoes_imagem ?? "",
     f.cid_codigo ?? "",
   ]);
 
@@ -52,6 +66,8 @@ export function AtendimentoPedidoPanel({
   const [baseline, setBaseline] = useState("");
   const [saving, setSaving] = useState(false);
   const listaRef = useRef<HTMLDivElement>(null);
+  /** Categoria corrigida pelo médico (lab / imagem), por exame. */
+  const [correcoes, setCorrecoes] = useState<Record<string, CategoriaExame>>({});
   const focoApos = useRef<number | null>(null);
 
   const focarLinha = (i: number) =>
@@ -67,6 +83,30 @@ export function AtendimentoPedidoPanel({
     focoApos.current = null;
     focarLinha(i);
   }, [linhas]);
+
+  useEffect(() => {
+    api
+      .pedidoExameCategorias(prontuarioId)
+      .then((r) => setCorrecoes(r.correcoes))
+      .catch(() => undefined);
+  }, [prontuarioId]);
+
+  /** Troca laboratório ⇄ imagem do exame: vale para este pedido e os próximos. */
+  const trocarCategoria = async (nome: string) => {
+    const nova: CategoriaExame = categoriaExame(nome, correcoes) === "lab" ? "imagem" : "lab";
+    setCorrecoes((c) => ({ ...c, [chaveExame(nome)]: nova }));
+    try {
+      const r = await api.pedidoExameCategoriaSalvar(prontuarioId, nome, nova);
+      setCorrecoes(r.correcoes);
+    } catch (e) {
+      void msg.error(e instanceof ApiError ? e.message : "Erro ao trocar a categoria");
+    }
+  };
+
+  const folhas = useMemo(
+    () => separarPedido(linhas.map((l) => l.trim()).filter(Boolean), correcoes),
+    [linhas, correcoes],
+  );
 
   useEffect(() => {
     let vivo = true;
@@ -195,6 +235,26 @@ export function AtendimentoPedidoPanel({
                 }
               }}
             />
+            {linha.trim() ? (
+              (() => {
+                const cat = categoriaExame(linha, correcoes);
+                return (
+                  <button
+                    type="button"
+                    className={`pedido__cat pedido__cat--${cat}`}
+                    disabled={somenteLeitura}
+                    title={
+                      somenteLeitura
+                        ? CATEGORIA_EXAME_LABEL[cat]
+                        : `${CATEGORIA_EXAME_LABEL[cat]} — clique para mudar (o sistema lembra)`
+                    }
+                    onClick={() => void trocarCategoria(linha)}
+                  >
+                    {cat === "lab" ? "Lab" : "Imagem"}
+                  </button>
+                );
+              })()
+            ) : null}
             {!somenteLeitura && !(idx === linhas.length - 1 && !linha.trim()) ? (
               <button
                 type="button"
@@ -208,29 +268,54 @@ export function AtendimentoPedidoPanel({
           </div>
         ))}
       </div>
-      <div className="doc-grade">
-        {/* o campo de CID já tem o próprio título "CID-10:" */}
-        <div className="pedido__cid">
-          <CidAutocomplete
-            codigo={form.cid_codigo ?? ""}
-            descricao={form.cid_descricao ?? ""}
-            disabled={somenteLeitura}
-            onChange={(codigo, descricao) => setForm((f) => ({ ...f, cid_codigo: codigo, cid_descricao: descricao }))}
-          />
-        </div>
-        <div>
-          <label className="doc-rotulo" htmlFor={`pedido-obs-${prontuarioId}`}>
+      {folhas.length > 1 ? (
+        <p className="pedido__folhas">
+          Sai em {folhas.length} pedidos separados:{" "}
+          {folhas.map((f) => `${CATEGORIA_EXAME_LABEL[f.categoria]} (${f.exames.length})`).join(" e ")}.
+        </p>
+      ) : null}
+      {/* o campo de CID já tem o próprio título "CID-10:" */}
+      <div className="pedido__cid">
+        <CidAutocomplete
+          codigo={form.cid_codigo ?? ""}
+          descricao={form.cid_descricao ?? ""}
+          disabled={somenteLeitura}
+          onChange={(codigo, descricao) => setForm((f) => ({ ...f, cid_codigo: codigo, cid_descricao: descricao }))}
+        />
+      </div>
+      <div className={`pedido__indicacoes${folhas.length > 1 || form.observacoes_imagem?.trim() ? " pedido__indicacoes--duas" : ""}`}>
+        <div className="pedido__indicacao">
+          <label className="pedido__indicacao-titulo" htmlFor={`pedido-obs-${prontuarioId}`}>
             Indicação clínica / observações
+            {folhas.length > 1 ? <small>laboratório{form.observacoes_imagem?.trim() ? "" : " e imagem"}</small> : null}
           </label>
           <textarea
             id={`pedido-obs-${prontuarioId}`}
-            className="doc-area"
-            rows={3}
+            className="doc-area pedido__indicacao-area"
+            rows={4}
             value={form.observacoes ?? ""}
             readOnly={somenteLeitura}
+            placeholder="Ex.: DOR ABDOMINAL HÁ 5 DIAS"
             onChange={(e) => setForm((f) => ({ ...f, observacoes: upperPrompt(e.target.value) }))}
           />
         </div>
+        {folhas.length > 1 || form.observacoes_imagem?.trim() ? (
+          <div className="pedido__indicacao pedido__indicacao--imagem">
+            <label className="pedido__indicacao-titulo" htmlFor={`pedido-obs-img-${prontuarioId}`}>
+              Indicação para imagem
+              <small>opcional — vazio: repete a do lado</small>
+            </label>
+            <textarea
+              id={`pedido-obs-img-${prontuarioId}`}
+              className="doc-area pedido__indicacao-area"
+              rows={4}
+              value={form.observacoes_imagem ?? ""}
+              readOnly={somenteLeitura}
+              placeholder={form.observacoes?.trim() || "Ex.: INVESTIGAR LINFONODOS"}
+              onChange={(e) => setForm((f) => ({ ...f, observacoes_imagem: upperPrompt(e.target.value) }))}
+            />
+          </div>
+        ) : null}
       </div>
       <DocAcoes indicador={indicador} saving={saving} onVoltar={onVoltar} onImprimir={() => void imprimir()} />
     </div>

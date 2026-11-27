@@ -227,6 +227,34 @@
 .pedido__del:hover:not(:disabled) {
   color: #dc2626;
 }
+/* Selo laboratório / imagem: cada categoria sai num pedido (folha) separado */
+.pedido__cat {
+  flex: 0 0 auto;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pedido__cat:disabled {
+  cursor: default;
+}
+.pedido__cat--lab {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #047857;
+}
+.pedido__cat--imagem {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+.pedido__folhas {
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+  color: #475569;
+}
 
 /* Marcação dentro dos botões do atendimento (botão azul): contorno branco para destacar */
 .btn .atend-abas__marca {
@@ -267,4 +295,60 @@
 }
 .doc-painel .receita__tabela {
   overflow-x: hidden;
+}
+
+/* Indicação clínica do pedido: cartões destacados (laboratório | imagem lado a lado) */
+.pedido__indicacoes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.pedido__indicacoes--duas {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+@media (max-width: 900px) {
+  .pedido__indicacoes--duas {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.pedido__indicacao {
+  padding: 0.75rem 0.85rem 0.85rem;
+  border: 1px solid #a7f3d0;
+  border-left: 4px solid #059669;
+  border-radius: 8px;
+  background: #f0fdf4;
+}
+.pedido__indicacao--imagem {
+  border-color: #bfdbfe;
+  border-left-color: #2563eb;
+  background: #eff6ff;
+}
+.pedido__indicacoes:not(.pedido__indicacoes--duas) .pedido__indicacao {
+  border-color: #cbd5e1;
+  border-left-color: #334155;
+  background: #f8fafc;
+}
+.pedido__indicacao-titulo {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0 0 0.45rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+.pedido__indicacao-titulo small {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #475569;
+}
+.pedido__indicacao-area {
+  min-height: 7rem;
+  font-size: 0.95rem;
+  resize: vertical;
+}
+.pedido__cid {
+  margin-top: 0.85rem;
+  max-width: 40rem;
 }
